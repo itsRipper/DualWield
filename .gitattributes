@@ -1,0 +1,7 @@
+# Fixed line endings make the PDB source checksums, and so the compiled DLLs, identical
+# for every checkout of a commit.
+* text=auto eol=crlf
+*.sh text eol=lf
+*.blend binary
+*.png binary
+*.jpg binary

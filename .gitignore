@@ -1,0 +1,30 @@
+# Build output
+bin/
+obj/
+artifacts/
+dist/
+
+# IDE and user files
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+
+# Blender backups and Python caches
+*.blend1
+__pycache__/
+*.pyc
+
+# Never commit game files, logs or profiles
+*.log
+*.dll
+*.pdb
+*.exe
+*.bundle
+*.assets
+*.resS
+**/profiles/
+**/BepInEx/
+**/SPT_Runtime/
+**/EscapeFromTarkov_Data/

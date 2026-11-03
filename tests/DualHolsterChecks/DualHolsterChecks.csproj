@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <SptRoot Condition="'$(SptRoot)' == ''">$(SPT_ROOT)</SptRoot>
+    <Runtime>$(SptRoot)\SPT_Runtime</Runtime>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Reference Include="SPTarkov.Server.Core"><HintPath>$(Runtime)\SPTarkov.Server.Core.dll</HintPath></Reference>
+    <Reference Include="SPTarkov.Common"><HintPath>$(Runtime)\SPTarkov.Common.dll</HintPath></Reference>
+    <Reference Include="SPTarkov.DI"><HintPath>$(Runtime)\SPTarkov.DI.dll</HintPath></Reference>
+    <Reference Include="SPTarkov.Reflection"><HintPath>$(Runtime)\SPTarkov.Reflection.dll</HintPath></Reference>
+    <Reference Include="SemanticVersioning"><HintPath>$(Runtime)\SemanticVersioning.dll</HintPath></Reference>
+    <Reference Include="0Harmony"><HintPath>$(Runtime)\0Harmony.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil"><HintPath>$(Runtime)\Mono.Cecil.dll</HintPath></Reference>
+    <ProjectReference Include="..\..\server\DualWieldLab.DualHolster\DualWieldLab.DualHolster.Server.csproj" />
+  </ItemGroup>
+</Project>
