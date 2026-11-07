@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>DualWieldLab.Fika</AssemblyName>
+    <Version>1.1.0</Version>
+    <InformationalVersion>1.1.0</InformationalVersion>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- Fika.Core targets netstandard2.1; the runtime DLL is referenced as built (scripts\Build.ps1 builds it first). -->
+    <SptRoot Condition="'$(SptRoot)' == ''">$(SPT_ROOT)</SptRoot>
+    <Managed>$(SptRoot)\EscapeFromTarkov_Data\Managed</Managed>
+    <!-- Fika.Core 2.4.6 (the release for SPT 4.1.x); by default the one installed in SptRoot. -->
+    <FikaCore Condition="'$(FikaCore)' == ''">$(SptRoot)\BepInEx\plugins\Fika\Fika.Core.dll</FikaCore>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="DualWieldLab"><HintPath>..\DualWieldLab\bin\Release\DualWieldLab.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Fika.Core"><HintPath>$(FikaCore)</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(Managed)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Comfort"><HintPath>$(Managed)\Comfort.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Comfort.Unity"><HintPath>$(Managed)\Comfort.Unity.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(Managed)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(Managed)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx"><HintPath>$(SptRoot)\BepInEx\core\BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(SptRoot)\BepInEx\core\0Harmony.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

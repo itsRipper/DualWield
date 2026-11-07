@@ -90,6 +90,21 @@ internal sealed class HandMirror
     internal Quaternion MirrorPalm(Quaternion rightPalm)
         => _mesh.rotation * Reflect(Quaternion.Inverse(_mesh.rotation) * rightPalm, _axis) * _palmDelta;
 
+    // The same, mirrored across the plane with this world normal instead of the mesh's own
+    // mid-plane: the mesh frame is turned so its lateral axis lies on the normal, which makes the
+    // frame reflection the plane reflection (the bone-local correction is unchanged). A palm
+    // placed by a mirror across another plane must be turned by that same plane, or the hand sits
+    // at the grip but rotated off it.
+    internal Quaternion MirrorPalm(Quaternion rightPalm, Vector3 mirrorNormal)
+    {
+        Vector3 right = RightAxis;
+        if (mirrorNormal.sqrMagnitude < 1e-8f) return MirrorPalm(rightPalm);
+        mirrorNormal.Normalize();
+        if (Vector3.Dot(mirrorNormal, right) < 0f) mirrorNormal = -mirrorNormal;
+        Quaternion frame = Quaternion.FromToRotation(right, mirrorNormal) * _mesh.rotation;
+        return frame * Reflect(Quaternion.Inverse(frame) * rightPalm, _axis) * _palmDelta;
+    }
+
     // The right-hand finger rotation per hand-poser index comes from the grip pose when there is
     // one, otherwise from the right hand's live fingers. Runs every preview frame.
     internal void ApplyFingers(GripPose? grip, Transform[] rightHand)

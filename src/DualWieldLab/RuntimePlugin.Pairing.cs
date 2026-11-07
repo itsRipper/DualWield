@@ -80,9 +80,11 @@ public sealed partial class RuntimePlugin
         _pairing = true;
         try
         {
-            if (HasFika()) throw new InvalidOperationException("Fika was detected. Only standalone SPT is supported.");
             if (!Singleton<GameWorld>.Instantiated) throw new InvalidOperationException("No raid world.");
             GameWorld world = Singleton<GameWorld>.Instance;
+            // A Fika raid is a network session even when hosted alone; the hideout range is not.
+            if (HasFika() && !(world is HideoutGameWorld) && !DualWieldNetwork.ReplicationReady)
+                throw new InvalidOperationException("DualWield's Fika integration is not running (see BepInEx\\LogOutput.log): a left pistol the other players cannot see is not allowed.");
             if (_cooldownWorld != world) { _cooldowns.Clear(); _cooldownWorld = world; }
             if (!(world is HideoutGameWorld) && !world.IsLocalGame()) throw new InvalidOperationException("Only a standalone local raid or native hideout shooting range is supported.");
             Player player = world.MainPlayer;

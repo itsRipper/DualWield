@@ -11,7 +11,7 @@ internal static class PluginIdentityChecks
         check("Runtime plugin GUID is itsripper.dualwield", Attribute("BepInEx.BepInPlugin") == "itsripper.dualwield");
         check("Runtime plugin refuses to load next to its previous GUID", Attribute("BepInEx.BepInIncompatibility") == "local.dualwieldlab.glock17");
         check("Runtime plugin keeps the DualWield display name and version",
-            runtime.CustomAttributes.Single(a => a.AttributeType.FullName == "BepInEx.BepInPlugin").ConstructorArguments.Select(a => a.Value as string).SequenceEqual(new[] { "itsripper.dualwield", "DualWield", "1.0.0" }));
+            runtime.CustomAttributes.Single(a => a.AttributeType.FullName == "BepInEx.BepInPlugin").ConstructorArguments.Select(a => a.Value as string).SequenceEqual(new[] { "itsripper.dualwield", "DualWield", "1.1.0" }));
 
         check("No on-screen IMGUI overlay: messages use EFT's own notifications", !runtime.Methods.Any(m => m.Name == "OnGUI")
             && runtime.Methods.Single(m => m.Name == "Notify").Body.Instructions.Any(i => i.Operand is MethodReference m && m.Name == "DisplayMessageNotification"));

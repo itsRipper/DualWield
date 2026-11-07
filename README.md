@@ -21,7 +21,8 @@ check uses EFT's own weapon logic.
 ## Requirements
 
 - SPT 4.1 (Escape from Tarkov 0.16.9.40743). On any other EFT build the plugins stay off.
-- Single-player only for now. With Fika installed, dual wielding stays off.
+- Optional: Fika 2.4.x for co-op (tested with Fika.Core 2.4.6 and the Fika server 2.4.2).
+  Nothing extra to install; see [Fika co-op](#fika-co-op).
 
 ## Installation
 
@@ -29,7 +30,38 @@ check uses EFT's own weapon logic.
 2. Extract the ZIP into your SPT folder (the one with `EscapeFromTarkov.exe`).
 3. Start the server and the game.
 
-To update, extract the new ZIP over the old files. Your settings are kept.
+To update, for example from 1.0.0, extract the new ZIP over the old files. Your settings are
+kept and nothing has to be removed.
+
+## Fika co-op
+
+The same ZIP works with and without Fika. In single player DualWield never loads anything of
+Fika. When Fika 2.4.x is installed, DualWield starts its co-op support by itself
+(`BepInEx\LogOutput.log` shows `DualWield Fika integration loaded`): other players see your left
+pistol in your left hand, its shots, ammunition, chamber, malfunctions and fire mode, also after
+a reconnect, and left-pistol damage counts as for any shot.
+
+- **Every game client in the raid needs the same DualWield version**: each player and a Fika
+  headless client. Install the whole ZIP on each of them. The SPT server needs DualWield's server
+  mod (`SPT_Runtime\user\mods\DualWieldLab-DualHolster`, from the same ZIP) and nothing else.
+  A client without DualWield cannot read inventories that use the left holster, and Fika drops
+  other network messages that arrive together with DualWield's.
+- Fika's server can refuse clients without DualWield. In
+  `SPT_Runtime\user\mods\fika-server\assets\configs\fika.jsonc`, add the plugin ids to the
+  `required` list under `client` → `mods` (keep entries already there) and restart the server:
+
+  ```jsonc
+  "client": {
+      "mods": {
+          "required": ["itsripper.dualwield", "itsripper.dualwield.dualholster"],
+          "optional": []
+      }
+  }
+  ```
+
+- If DualWield's co-op support cannot start (another Fika version, a missing file), the log says
+  why and DualWield does not pair pistols in Fika raids, so nobody holds a left pistol the others
+  cannot see. The hideout shooting range is unaffected.
 
 ## Controls
 
@@ -67,7 +99,10 @@ Details: [docs/UNINSTALL.md](docs/UNINSTALL.md).
 ## Known issues and work in progress
 
 - Some animations clip into the hands. I am working on it.
-- Fika support is in progress.
+- In Fika raids other players do not see the left-hand reload, check and fire-mode animations
+  or the left pistol's shell ejection (the results are synchronised). During your right pistol's
+  reload or checks, your left pistol briefly disappears for them. Joining a raid that has already
+  started is not supported by Fika; reconnecting is.
 - Revolver support is in progress. Signal pistols, single-shot weapons and burst modes are not
   supported.
 - The left pistol can show a round in an empty chamber.

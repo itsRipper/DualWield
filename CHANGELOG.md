@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0
+
+For SPT 4.1 (EFT 0.16.9.40743), optionally with Fika 2.4.x.
+
+- **Fika 2.4.x co-op support, built in.** The same ZIP works with and without Fika: with Fika
+  installed, other players see your left pistol in your left hand, its shots, ammunition,
+  chamber, malfunction, fire mode and wear, also after a reconnect; damage from left shots counts
+  as for any shot. Without Fika nothing of it is loaded and single player is unchanged.
+- DualWield no longer turns itself off when Fika is installed. If its co-op support cannot start,
+  it refuses to pair pistols in Fika raids; the hideout shooting range is unaffected.
+- Every game client in a Fika raid (players and a headless client) needs the same DualWield
+  version; the README shows Fika's required-mods setting for it.
+
 ## 1.0.0
 
 First public release, for SPT 4.1 (EFT 0.16.9.40743).

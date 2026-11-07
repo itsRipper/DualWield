@@ -4,8 +4,8 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <AssemblyName>DualWieldLab</AssemblyName>
-    <Version>1.0.0</Version>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version>1.1.0</Version>
+    <InformationalVersion>1.1.0</InformationalVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
     <SptRoot Condition="'$(SptRoot)' == ''">$(SPT_ROOT)</SptRoot>
@@ -36,6 +36,9 @@
     <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(Managed)\UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="BepInEx"><HintPath>$(SptRoot)\BepInEx\core\BepInEx.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="0Harmony"><HintPath>$(SptRoot)\BepInEx\core\0Harmony.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\DualWieldLab.DualHolster\HandMirror.cs" Link="HandMirror.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="..\..\assets\exports\unity\dw_*.json" LogicalName="DualWieldLab.Clips.%(Filename)%(Extension)" />

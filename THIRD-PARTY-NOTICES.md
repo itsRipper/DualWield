@@ -17,6 +17,7 @@ none of them is included in this repository or in the release ZIP:
 | Harmony (`0Harmony.dll`) | Runtime patching | MIT |
 | SPT server assemblies (`SPTarkov.Server.Core`, `SPTarkov.Common`, `SPTarkov.DI`, `SPTarkov.Reflection`) | Server mod API | See the SPT project |
 | SemanticVersioning | Server mod metadata | MIT |
+| Fika (`Fika.Core.dll`, optional) | Co-op network API, used only when the user has Fika installed | See the Fika project |
 | Mono.Cecil (tests only, from `BepInEx\core`) | Static contract checks | MIT |
 
 Escape from Tarkov is a trademark of Battlestate Games. DualWield is not affiliated with or

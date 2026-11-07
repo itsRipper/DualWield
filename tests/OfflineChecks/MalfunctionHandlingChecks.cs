@@ -63,8 +63,10 @@ internal static class MalfunctionHandlingChecks
         check("A malfunctioned left trigger follows native rules: knowledge only, no shot",
             Has(M(context, "PressMalfunctionedTrigger"), "ExamineMalfunction") && !Has(M(context, "PressMalfunctionedTrigger"), "FireOnce"));
         // FireOnce only records the state the native shot sampled; nothing else writes or repairs it.
+        // The observed copy of another player's pistol takes that owner's state (RemoteDualPistols.Reconcile),
+        // as Fika's observed hands controller does for the right pistol; it repairs nothing locally.
         check("No custom repair: the plugin never clears malfunction state itself",
-            !pt.Values.SelectMany(t => t.Methods).Any(m => Calls(m).Any(c => c.DeclaringType.Name.Contains("Malf")
+            !pt.Values.SelectMany(t => t.Methods).Where(m => !(m.DeclaringType.Name == "RemoteDualPistols" && m.Name == "Reconcile")).Any(m => Calls(m).Any(c => c.DeclaringType.Name.Contains("Malf")
                 && (c.Name == "Repair" || c.Name == "ChangeStateSilent" || (c.Name == "set_State" && m.Name != "FireOnce")))));
 
         var action = pt["DualWieldLab.OffhandNativeAction"];
