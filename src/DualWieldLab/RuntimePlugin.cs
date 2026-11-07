@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace DualWieldLab;
 
-[BepInPlugin(Id, "DualWield", "1.0.0")]
+[BepInPlugin(Id, "DualWield", "1.1.0")]
 [BepInIncompatibility(LegacyId)]
 public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
 {
@@ -122,13 +122,6 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
             enabled = false;
             return;
         }
-        // Never enter a cooperative/network session with an unreplicated second weapon.
-        if (HasFika())
-        {
-            Logger.LogError("Disabled: Fika is installed; dual wielding is single-player only.");
-            enabled = false;
-            return;
-        }
         try
         {
             _harmony = new Harmony(Id);
@@ -161,8 +154,13 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
             _harmony.Patch(AccessTools.Method(typeof(EFT.Animations.ProceduralWeaponAnimation), nameof(EFT.Animations.ProceduralWeaponAnimation.ApplyComplexRotation)),
                 postfix: new HarmonyMethod(typeof(RuntimePlugin), nameof(AfterRecoilApplied)));
             DamageDiagnostics.Install(_harmony);
+            RemoteDualPistols.Install(_harmony);
+            DualWieldNetwork.Log = Logger.LogWarning;
+            RemoteDualPistols.Log = LogDiagnostic;
             GameWorld.OnDispose += OnWorldDisposed;
             _patchesReady = true;
+            // In a Fika raid the pair needs the network integration (DualWieldLab.Fika.dll), which
+            // Start loads once Fika is loaded; TryPair checks it when a pair is made.
             Logger.LogInfo("DualWield active for EFT " + SupportedGame.Running() + ".");
         }
         catch (Exception e)
@@ -183,6 +181,9 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
 
     private void Patch(Type type, string name, string prefix)
         => _harmony!.Patch(AccessTools.Method(type, name), prefix: new HarmonyMethod(typeof(RuntimePlugin), prefix));
+
+    // Not reached when Awake disabled the plugin (unsupported game, failed patches).
+    private void Start() => FikaIntegrationLoader.TryStart(gameObject, Logger);
 
     private static bool HasFika() => BepInEx.Bootstrap.Chainloader.PluginInfos.Values.Any(p => p.Metadata.GUID.IndexOf("fika", StringComparison.OrdinalIgnoreCase) >= 0);
 
@@ -263,7 +264,27 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
                 || (Singleton<GameWorld>.Instantiated && Singleton<GameWorld>.Instance.MainPlayer == player));
     }
 
-    private void OnWorldDisposed() => EndSession("World disposed");
+    private void OnWorldDisposed()
+    {
+        EndSession("World disposed");
+        DualWieldNetwork.ForgetAllRemote();
+        DualWieldNetwork.ResetLocal();
+    }
+
+    // The left pistol as other machines need it (DualWieldNetwork): published on change only.
+    private void PublishNetworkState()
+    {
+        if (!DualWieldNetwork.HasSubscribers) return;
+        try { DualWieldNetwork.PublishIfChanged(_secondary, _player != null && _secondary != null); }
+        catch (Exception e) { Logger.LogWarning("Dual-wield state publication failed: " + e.Message); }
+    }
+
+    private void PublishOffhandAction(OffhandAction action)
+    {
+        if (!DualWieldNetwork.HasSubscribers || _player == null || _secondary == null) return;
+        try { DualWieldNetwork.PublishIfChanged(_secondary, true, action); }
+        catch (Exception e) { Logger.LogWarning("Dual-wield action publication failed: " + e.Message); }
+    }
 
     private void EndSession(string reason)
     {
@@ -296,6 +317,9 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
         ObserveOffhandMagazineReload();
         AdvanceOffhandReload();
         PlayPendingSelectorSound();
+        PublishNetworkState();
+        try { RemoteDualPistols.Tick(); }
+        catch (Exception e) { Logger.LogWarning("Observed dual-wield update failed: " + e.Message); }
         if (_handoff?.Finished == true) _handoff = null;
         if (!_pairBarrier.Blocks(Time.frameCount))
         { _pairBarrierOwner = null; _pairBarrierManager = null; }

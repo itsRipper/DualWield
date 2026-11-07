@@ -72,6 +72,14 @@ public sealed partial class RuntimePlugin
             bool started = result == OffhandShotContext.NativeCheckResult.Started;
             _handPose?.OwnNativeAction(started);
             action.NativeStarted(started);
+            if (started) PublishOffhandAction(action.Check switch
+            {
+                OffhandShotContext.NativeCheck.Reload => OffhandAction.Reload,
+                OffhandShotContext.NativeCheck.Magazine => OffhandAction.MagazineCheck,
+                OffhandShotContext.NativeCheck.Chamber => OffhandAction.ChamberCheck,
+                OffhandShotContext.NativeCheck.FireMode => OffhandAction.FireModeCheck,
+                _ => OffhandAction.Examine,
+            });
             LogDiagnostic("DW_LEFT_SERVICE step=native check=" + action.Check + " result=" + result
                 + " operation=" + _shot.NativeOperationName + " malfunction=" + _secondary?.MalfState.State);
             if (!started && action.Check != OffhandShotContext.NativeCheck.Reload) _primary?.WeaponSoundPlayer?.SoundEventHandler("SndDraw");

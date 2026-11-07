@@ -297,6 +297,7 @@ public sealed partial class RuntimePlugin
                         LogDiagnostic("DW_LEFT_MODE mode=" + _secondary.SelectedFireMode + " right_mode=" + _primary.Item.SelectedFireMode);
                         _handPose?.BeginOffhandSelector();
                         _selectorSoundAt = Time.unscaledTime + SelectorSoundDelay;
+                        PublishOffhandAction(OffhandAction.FireModeChange);
                     }
                     else Notify(feedback);
                 }
@@ -505,6 +506,9 @@ public sealed partial class RuntimePlugin
             // Shot updates the native heat multiplier. Base the NEXT deadline
             // on that post-shot state, not the multiplier before this round.
             _cooldowns[_secondary] = PairPolicy.NextShotTime(Time.timeAsDouble, WeaponCompatibility.GetShotRate(_secondary));
+            if (DualWieldNetwork.HasSubscribers)
+                DualWieldNetwork.PublishShot(_secondary, new OffhandShot { Position = result.ProjectileOrigin, Direction = result.ProjectileDirection,
+                    AmmoTemplate = result.AmmoTemplate, Overheat = _secondary.MalfState.LastShotOverheat });
             _animation.Fire(_shot.float_5);
             ApplyLeftCameraRecoil();
             // A jam/feed/slide failure already plays its own native malfunction state.

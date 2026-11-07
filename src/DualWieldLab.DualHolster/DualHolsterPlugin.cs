@@ -20,7 +20,7 @@ namespace DualWieldLab.DualHolster;
 // the Default Inventory template; this lets the compiled client build and show it. Items in it
 // are ordinary native equipment: real addresses, native filters, drag-and-drop transactions,
 // inspection and weight. Required whenever the server mod is installed; harmless without it.
-[BepInPlugin(Id, "DualWield dual holster", "1.0.0")]
+[BepInPlugin(Id, "DualWield dual holster", "1.1.0")]
 [BepInIncompatibility(LegacyId)]
 public sealed class DualHolsterPlugin : BaseUnityPlugin
 {

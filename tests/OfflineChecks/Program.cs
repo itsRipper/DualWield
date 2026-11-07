@@ -108,8 +108,12 @@ Check("Hands restored before model pooling", CallsName(PM(runtime,"Unpair"),"Res
 Check("World/session reference cleanup present", CallsName(PM(runtime,"EndSession"),"Clear") && CallsName(PM(runtime,"EndSession"),"Unpair"));
 Check("Switching preserves per-weapon cooldown", !PM(runtime,"Unpair").Body.Instructions.Any(i=>i.Operand is FieldReference f && f.Name=="_cooldowns"));
 Check("Damage diagnostics use bounded arrays", pt["DualWieldLab.DamageDiagnostics"].Fields.Count(f=>f.FieldType is ArrayType)==2);
+MultiplayerChecks.Run(Check, project, plugin, game);
+RemoteSyncChecks.Run(Check);
 Check("No shot-path logger I/O", !Calls(PM(runtime,"TryFire")).Any(m=>m.Name=="LogInfo") && !Calls(PM(context,"FireOnce")).Any(m=>m.Name.StartsWith("Log")));
-Check("No file, profile, server, HTTP, clone or weapon factory writes outside the configuration migration", !pt.Values.Where(t=>t.FullName!="DualWieldLab.ConfigMigration").SelectMany(t=>t.Methods).SelectMany(Calls).Any(m=>(m.DeclaringType.FullName.StartsWith("System.IO.File") && m.Name!="Exists") || m.DeclaringType.FullName.StartsWith("System.Net") || m.DeclaringType.FullName=="EFT.ItemFactory" || m.Name=="set_HandsController"));
+// RemoteDualPistols.Replay creates a free ammunition object to replay another player's shot, as
+// Fika's observed hands controller does; it never enters an inventory (MultiplayerChecks).
+Check("No file, profile, server, HTTP, clone or weapon factory writes outside the configuration migration", !pt.Values.Where(t=>t.FullName!="DualWieldLab.ConfigMigration").SelectMany(t=>t.Methods).Where(m=>!(m.DeclaringType.Name=="RemoteDualPistols" && m.Name=="Replay")).SelectMany(Calls).Any(m=>(m.DeclaringType.FullName.StartsWith("System.IO.File") && m.Name!="Exists") || m.DeclaringType.FullName.StartsWith("System.Net") || m.DeclaringType.FullName=="EFT.ItemFactory" || m.Name=="set_HandsController"));
 string[] frameMethods = ["Update", "LateUpdate", "BeforeVisualPass", "AfterVisualPass", "AlignModel"];
 Check("No scene or inventory searches in frame methods", !runtime.Methods.Where(m=>frameMethods.Contains(m.Name)).SelectMany(Calls).Any(m=>m.Name.StartsWith("FindObject") || m.Name=="GetAllItemsNonAlloc" || m.Name=="GetComponentsInChildren" || m.Name=="GetComponent"));
 Check("Own DLL only in plugin build output", Directory.GetFiles(Path.GetDirectoryName(output)!,"*.dll").Length==1);

@@ -41,8 +41,11 @@ internal sealed class OffhandShotContext : Player.FirearmController
         return WeaponCompatibility.IsEligible(weapon, allowMalfunction: true);
     }
 
+    // pointOfView: FirstPerson for the local player's own left pistol; ThirdPerson for the left
+    // pistol of an observed player, whose shots are replayed from the network (ReplayRemoteShot).
     internal void Initialize(Player player, Weapon weapon,
-        Player.FirearmController primary, WeaponPrefab prefab, Transform fireport)
+        Player.FirearmController primary, WeaponPrefab prefab, Transform fireport,
+        EPointOfView pointOfView = EPointOfView.FirstPerson)
     {
         if (_ready || _faulted)
             throw new InvalidOperationException("Shot context cannot be reused.");
@@ -101,7 +104,7 @@ internal sealed class OffhandShotContext : Player.FirearmController
         Firearms.Player = player;
         Firearms.AfterGetFromPoolInit(player.ProceduralWeaponAnimation, CCV, true);
         Firearms.SetFireport(Fireport);
-        Firearms.SetPointOfView(EPointOfView.FirstPerson);
+        Firearms.SetPointOfView(pointOfView);
         UpdateIsWithSilencer();
         var sourceSound = prefab.GetComponent<WeaponSoundPlayer>();
         if (sourceSound == null || sourceSound.Body == null)
@@ -272,8 +275,36 @@ internal sealed class OffhandShotContext : Player.FirearmController
         finally { _primary.IsSilenced = primarySilenced; }
     }
 
+    // A shot the owning machine fired with this pistol, shown on an observed player: the same
+    // native InitiateShot an observed hands controller runs for its own replicated shots
+    // (projectile, AI noise, muzzle effects of this model) and the native shot sound. Rounds,
+    // heat and wear come from the owner's state snapshot, never from this replay.
+    internal void ReplayRemoteShot(Ammo ammo, Vector3 position, Vector3 direction, float overheat)
+    {
+        if (!_ready || _faulted || _firing) return;
+        _replaying = true;
+        try
+        {
+            InitiateShot(Item, ammo, position, direction, Fireport.position, 0, overheat);
+            PlayFireBulletSound(_weaponSoundPlayer, ammo, position, direction, false);
+            _firearmsAnimator.SetFire(true);
+            if (Item.MalfState.State == Weapon.EMalfunctionState.None)
+                _firearmsAnimator.Animator.Play(Item.SelectedFireMode == Weapon.EFireMode.semiauto
+                    ? _firearmsAnimator.FullSemiFireStateName : _firearmsAnimator.FullFireStateName, 1, .2f);
+        }
+        finally { _replaying = false; }
+    }
+
+    internal void ResetFire()
+    {
+        if (_ready) _firearmsAnimator.SetFire(false);
+    }
+
+    private bool _replaying;
+
     public override void RegisterShot(Item weapon, Shot shot)
     {
+        if (_replaying) return;
         // Native base RegisterShot is empty in the inspected build. This only
         // observes the already-created projectile; it never creates another.
         if (!_firing || !ReferenceEquals(weapon, Item) || !ReferenceEquals(shot.Weapon, Item))

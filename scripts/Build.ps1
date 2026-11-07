@@ -1,9 +1,11 @@
 param(
     [string]$SptRoot = $env:SPT_ROOT,
-    [string]$BlenderPath = $env:BLENDER_EXE
+    [string]$BlenderPath = $env:BLENDER_EXE,
+    [string]$FikaCore = $env:FIKA_CORE
 )
-# Builds the runtime plugin, the dual-holster client plugin and the dual-holster server mod, then
-# runs the contract checks. The SPT installation is only read (assembly references, item data).
+# Builds the runtime plugin, its Fika integration, the dual-holster client plugin and the
+# dual-holster server mod, then runs the contract checks. The SPT installation and Fika.Core are
+# only read (assembly references, item data); Fika is not redistributed.
 # ContinuousIntegrationBuild maps source paths, so the DLLs do not depend on the checkout folder.
 $ErrorActionPreference = 'Stop'
 if (!$SptRoot) { throw 'Supply -SptRoot (the SPT 4.1.6 folder) or set SPT_ROOT.' }
@@ -11,6 +13,10 @@ $SptRoot = [IO.Path]::GetFullPath($SptRoot)
 foreach ($required in 'EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll', 'BepInEx\core\BepInEx.dll', 'SPT_Runtime\SPTarkov.Server.Core.dll') {
     if (!(Test-Path -LiteralPath (Join-Path $SptRoot $required))) { throw "Not an SPT 4.1 installation: $required is missing under $SptRoot." }
 }
+# The Fika integration compiles against Fika.Core 2.4.x: the one installed in SptRoot, or -FikaCore.
+if (!$FikaCore) { $FikaCore = Join-Path $SptRoot 'BepInEx\plugins\Fika\Fika.Core.dll' }
+if (!(Test-Path -LiteralPath $FikaCore)) { throw "Fika.Core.dll (Fika 2.4.x for SPT 4.1) not found at $FikaCore. Supply -FikaCore or set FIKA_CORE." }
+$FikaCore = [IO.Path]::GetFullPath($FikaCore)
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $logs = Join-Path $root 'artifacts\logs'
 New-Item -ItemType Directory -Force $logs | Out-Null
@@ -29,6 +35,7 @@ function Invoke-Step([string]$name, [scriptblock]$command) {
 Push-Location $root
 try {
     Invoke-Step 'build-runtime' { dotnet build 'src\DualWieldLab\DualWieldLab.csproj' -c Release "-p:SptRoot=$SptRoot" -p:ContinuousIntegrationBuild=true --nologo }
+    Invoke-Step 'build-fika-integration' { dotnet build 'src\DualWieldLab.Fika\DualWieldLab.Fika.csproj' -c Release "-p:SptRoot=$SptRoot" "-p:FikaCore=$FikaCore" -p:ContinuousIntegrationBuild=true --nologo }
     Invoke-Step 'build-dual-holster-client' { dotnet build 'src\DualWieldLab.DualHolster\DualWieldLab.DualHolster.csproj' -c Release "-p:SptRoot=$SptRoot" -p:ContinuousIntegrationBuild=true --nologo }
     Invoke-Step 'build-dual-holster-server' { dotnet build 'server\DualWieldLab.DualHolster\DualWieldLab.DualHolster.Server.csproj' -c Release "-p:SptRoot=$SptRoot" -p:ContinuousIntegrationBuild=true --nologo }
     $cecil = Join-Path $SptRoot 'BepInEx\core\Mono.Cecil.dll'
@@ -52,7 +59,7 @@ try {
     else { Write-Host 'Blender 5.2 not found; the clip export check was skipped.' }
 
     Write-Host ''
-    foreach ($output in 'src\DualWieldLab\bin\Release\DualWieldLab.dll', 'src\DualWieldLab.DualHolster\bin\Release\DualWieldLab.DualHolster.dll', 'server\DualWieldLab.DualHolster\bin\Release\DualWieldLab.DualHolster.Server.dll') {
+    foreach ($output in 'src\DualWieldLab\bin\Release\DualWieldLab.dll', 'src\DualWieldLab.Fika\bin\Release\DualWieldLab.Fika.dll', 'src\DualWieldLab.DualHolster\bin\Release\DualWieldLab.DualHolster.dll', 'server\DualWieldLab.DualHolster\bin\Release\DualWieldLab.DualHolster.Server.dll') {
         '{0}  {1}' -f (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant(), $output
     }
 }
