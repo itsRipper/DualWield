@@ -17,7 +17,10 @@ internal static class MultiplayerChecks
             !runtime.MainModule.AssemblyReferences.Any(r => r.Name.StartsWith("Fika", StringComparison.OrdinalIgnoreCase)));
         var tryPair = M(rt["DualWieldLab.RuntimePlugin"], "TryPair");
         check("In a Fika raid the pair requires the network integration (ReplicationReady), the hideout range does not",
-            CallsName(tryPair, "HasFika") && CallsName(tryPair, "get_ReplicationReady"));
+            CallsName(tryPair, "HasFika") && CallsName(tryPair, "get_ReplicationReady") && CallsName(tryPair, "PairRefusal"));
+        var hasFika = M(rt["DualWieldLab.RuntimePlugin"], "HasFika");
+        check("Fika is detected through the exact plugin GUID lookup, never a name substring",
+            CallsName(hasFika, "IsFikaLoaded") && CallsName(hasFika, "ContainsKey") && !CallsName(hasFika, "IndexOf"));
         var context = rt["DualWieldLab.OffhandShotContext"];
         var replay = M(context, "ReplayRemoteShot");
         check("A replayed remote shot uses native InitiateShot and shot sound, and never runs the ammunition operation or native Shot",

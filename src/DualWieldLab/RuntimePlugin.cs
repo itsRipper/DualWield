@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using BepInEx;
 using Comfort.Common;
 using EFT;
@@ -13,7 +12,7 @@ using UnityEngine;
 
 namespace DualWieldLab;
 
-[BepInPlugin(Id, "DualWield", "1.1.0")]
+[BepInPlugin(Id, "DualWield", "1.1.1")]
 [BepInIncompatibility(LegacyId)]
 public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
 {
@@ -185,7 +184,7 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
     // Not reached when Awake disabled the plugin (unsupported game, failed patches).
     private void Start() => FikaIntegrationLoader.TryStart(gameObject, Logger);
 
-    private static bool HasFika() => BepInEx.Bootstrap.Chainloader.PluginInfos.Values.Any(p => p.Metadata.GUID.IndexOf("fika", StringComparison.OrdinalIgnoreCase) >= 0);
+    private static bool HasFika() => NetworkSessionPolicy.IsFikaLoaded(BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey);
 
     private static void BeforePlayerBoundary(Player __instance)
     {

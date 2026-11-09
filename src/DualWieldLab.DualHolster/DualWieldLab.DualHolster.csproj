@@ -4,8 +4,8 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <AssemblyName>DualWieldLab.DualHolster</AssemblyName>
-    <Version>1.1.0</Version>
-    <InformationalVersion>1.1.0</InformationalVersion>
+    <Version>1.1.1</Version>
+    <InformationalVersion>1.1.1</InformationalVersion>
     <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
     <SptRoot Condition="'$(SptRoot)' == ''">$(SPT_ROOT)</SptRoot>
     <Managed>$(SptRoot)\EscapeFromTarkov_Data\Managed</Managed>

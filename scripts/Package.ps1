@@ -22,9 +22,9 @@ $layout = [ordered]@{
     'BepInEx/plugins/DualWieldLab.DualHolster/DualWieldLab.DualHolster.dll'           = 'src\DualWieldLab.DualHolster\bin\Release\DualWieldLab.DualHolster.dll'
     'SPT_Runtime/user/mods/DualWieldLab-DualHolster/DualWieldLab.DualHolster.Server.dll' = 'server\DualWieldLab.DualHolster\bin\Release\DualWieldLab.DualHolster.Server.dll'
     'SPT_Runtime/user/mods/DualWieldLab-DualHolster/config.json'                      = 'server\DualWieldLab.DualHolster\config.json'
-    'DualWield-README.md'                                                              = 'README.md'
-    'DualWield-LICENSE.txt'                                                            = 'LICENSE'
-    'DualWield-THIRD-PARTY-NOTICES.md'                                                 = 'THIRD-PARTY-NOTICES.md'
+    'BepInEx/plugins/DualWieldLab/README.md'                                           = 'README.md'
+    'BepInEx/plugins/DualWieldLab/LICENSE'                                             = 'LICENSE'
+    'BepInEx/plugins/DualWieldLab/THIRD-PARTY-NOTICES.md'                              = 'THIRD-PARTY-NOTICES.md'
 }
 foreach ($source in $layout.Values) {
     if (!(Test-Path -LiteralPath (Join-Path $root $source))) { throw "Missing $source; run scripts\Build.ps1 first." }
@@ -56,6 +56,8 @@ $archive = [IO.Compression.ZipFile]::OpenRead($zip)
 try {
     $names = @($archive.Entries | ForEach-Object FullName)
     if ($names.Count -ne $layout.Count -or @($names | Where-Object { $_ -match '\\' }).Count -ne 0) { throw 'Unexpected ZIP contents.' }
+    # The ZIP is extracted into the SPT folder: nothing may land loose in its root.
+    if (@($names | Where-Object { $_ -notmatch '^(BepInEx|SPT_Runtime)/' }).Count -ne 0) { throw 'File outside BepInEx/ and SPT_Runtime/ in ZIP.' }
     if (@($names | Where-Object { $_ -match '\.(pdb|bundle|assets|resS|blend|exe)$' }).Count -ne 0) { throw 'Non-release file in ZIP.' }
 }
 finally { $archive.Dispose() }

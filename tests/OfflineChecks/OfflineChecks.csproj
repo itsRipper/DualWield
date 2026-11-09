@@ -21,6 +21,7 @@
     <Compile Include="..\..\src\DualWieldLab\MagazineReplacementAudit.cs" Link="MagazineReplacementAudit.cs" />
     <Compile Include="..\..\src\DualWieldLab\OffhandSnapshot.cs" Link="OffhandSnapshot.cs" />
     <Compile Include="..\..\src\DualWieldLab\RemoteSyncPolicy.cs" Link="RemoteSyncPolicy.cs" />
+    <Compile Include="..\..\src\DualWieldLab\NetworkSessionPolicy.cs" Link="NetworkSessionPolicy.cs" />
     <Reference Include="Mono.Cecil"><HintPath>$(CecilPath)</HintPath></Reference>
   </ItemGroup>
 </Project>

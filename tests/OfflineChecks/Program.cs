@@ -95,7 +95,7 @@ Check("Shadow destroy bypasses native Destroy", !Calls(PM(context,"Destroy")).An
 Check("Shadow has no automatic native update operations", Calls(PM(context,"ManualUpdate")).Count()==0 && Calls(PM(context,"ManualLateUpdate")).Count()==0);
 Check("Audio shuts down synchronously before model return", CallsName(PM(context,"DisposeContext"),"Shutdown"));
 Check("Pooled model returned by unpair", CallsName(PM(runtime,"Unpair"),"ReturnToPool"));
-Check("Pair-time network guard", CallsName(PM(runtime,"TryPair"),"HasFika"));
+Check("Pair-time network guard", CallsName(PM(runtime,"TryPair"),"HasFika") && CallsName(PM(runtime,"TryPair"),"PairRefusal"));
 Check("Shared rate adapter reads native single and automatic getters", CallsName(PM(runtime,"TryFire"),"GetShotRate") && CallsName(PM(pt["DualWieldLab.WeaponCompatibility"],"GetShotRate"),"get_SingleFireRate") && CallsName(PM(pt["DualWieldLab.WeaponCompatibility"],"GetShotRate"),"get_FireRate"));
 Check("No inventory-tree traversal while shooting", !CallsName(PM(runtime,"TryFire"),"GetAllItemsNonAlloc"));
 Check("Shot callback submits no duplicate projectile", !Calls(PM(context,"RegisterShot")).Any(m=>m.Name=="Shoot" || m.Name=="InitiateShot" || m.Name=="Shot"));
@@ -110,6 +110,7 @@ Check("Switching preserves per-weapon cooldown", !PM(runtime,"Unpair").Body.Inst
 Check("Damage diagnostics use bounded arrays", pt["DualWieldLab.DamageDiagnostics"].Fields.Count(f=>f.FieldType is ArrayType)==2);
 MultiplayerChecks.Run(Check, project, plugin, game);
 RemoteSyncChecks.Run(Check);
+NetworkSessionChecks.Run(Check);
 Check("No shot-path logger I/O", !Calls(PM(runtime,"TryFire")).Any(m=>m.Name=="LogInfo") && !Calls(PM(context,"FireOnce")).Any(m=>m.Name.StartsWith("Log")));
 // RemoteDualPistols.Replay creates a free ammunition object to replay another player's shot, as
 // Fika's observed hands controller does; it never enters an inventory (MultiplayerChecks).
