@@ -15,7 +15,7 @@ namespace DualWieldLab;
 // assembly references no Fika type.
 internal static class FikaIntegrationLoader
 {
-    internal const string FikaGuid = "com.fika.core";
+    internal const string FikaGuid = NetworkSessionPolicy.FikaCoreGuid;
     internal const string FileName = "DualWieldLab.Fika.dll";
     internal const string EntryType = "DualWieldLab.Fika.FikaIntegration";
     // The Fika release line the integration is built and tested against (Fika.Core 2.4.x, SPT 4.1).

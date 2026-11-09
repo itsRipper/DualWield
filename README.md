@@ -27,10 +27,12 @@ check uses EFT's own weapon logic.
 ## Installation
 
 1. Close the game and the SPT server, then back up `SPT_Runtime\user\profiles`.
-2. Extract the ZIP into your SPT folder (the one with `EscapeFromTarkov.exe`).
+2. Extract the ZIP into your SPT folder (the one with `EscapeFromTarkov.exe`). It adds only
+   `BepInEx` and `SPT_Runtime` entries; this README, the licence and the third-party notices end
+   up in `BepInEx\plugins\DualWieldLab`.
 3. Start the server and the game.
 
-To update, for example from 1.0.0, extract the new ZIP over the old files. Your settings are
+To update, for example from 1.1.0, extract the new ZIP over the old files. Your settings are
 kept and nothing has to be removed.
 
 ## Fika co-op
@@ -80,7 +82,7 @@ mouse button) and press the same key.
 | `Alt+Click` a pistol | Equip it; if the right holster is taken it goes into the left one. |
 
 `Mouse4`, `Alt+V`, `Alt+R` and `Alt+B` can be changed with the BepInEx configuration manager
-(`F12`); see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+(`F12`); see [docs/CONFIGURATION.md](https://github.com/itsRipper/DualWield/blob/main/docs/CONFIGURATION.md).
 
 ## Uninstalling
 
@@ -94,7 +96,7 @@ Deleting the files alone leaves profiles that no longer load. Migrate first:
 
 Left-holster pistols move to the empty holster or a free stash cell. If a profile cannot be
 migrated, for example because the stash is full, nothing in it changes and the server says so.
-Details: [docs/UNINSTALL.md](docs/UNINSTALL.md).
+Details: [docs/UNINSTALL.md](https://github.com/itsRipper/DualWield/blob/main/docs/UNINSTALL.md).
 
 ## Known issues and work in progress
 
@@ -112,6 +114,6 @@ Details: [docs/UNINSTALL.md](docs/UNINSTALL.md).
 
 ## Building and licence
 
-See [docs/BUILDING.md](docs/BUILDING.md). DualWield by ItsRipper is released under the
+See [docs/BUILDING.md](https://github.com/itsRipper/DualWield/blob/main/docs/BUILDING.md). DualWield by ItsRipper is released under the
 [MIT License](LICENSE); see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). It is a fan-made
 mod, not affiliated with Battlestate Games or the SPT team.

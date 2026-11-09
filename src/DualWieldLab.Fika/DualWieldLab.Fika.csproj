@@ -4,8 +4,8 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <AssemblyName>DualWieldLab.Fika</AssemblyName>
-    <Version>1.1.0</Version>
-    <InformationalVersion>1.1.0</InformationalVersion>
+    <Version>1.1.1</Version>
+    <InformationalVersion>1.1.1</InformationalVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <!-- Fika.Core targets netstandard2.1; the runtime DLL is referenced as built (scripts\Build.ps1 builds it first). -->
     <SptRoot Condition="'$(SptRoot)' == ''">$(SPT_ROOT)</SptRoot>

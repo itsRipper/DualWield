@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+
+Hotfix for SPT 4.1 (EFT 0.16.9.40743), with optional Fika 2.4.x support.
+
+- **Fixed:** Dual wielding being unavailable in standalone raids due to incorrect Fika detection.
+- **Improved:** Release packaging now keeps documentation and licence files inside the mod folder.
+
 ## 1.1.0
 
 For SPT 4.1 (EFT 0.16.9.40743), optionally with Fika 2.4.x.
