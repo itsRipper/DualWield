@@ -1,11 +1,13 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
+using Comfort.Common;
 using Diz.Utils;
 using EFT;
 using EFT.AssetsManager;
 using EFT.Ballistics;
 using EFT.InventoryLogic;
+using EFT.StreamingAnimatorSystem;
 using UnityEngine;
 
 namespace DualWieldLab;
@@ -107,9 +109,11 @@ internal sealed class OffhandShotContext : Player.FirearmController
         Firearms.SetPointOfView(pointOfView);
         UpdateIsWithSilencer();
         var sourceSound = prefab.GetComponent<WeaponSoundPlayer>();
-        if (sourceSound == null || sourceSound.Body == null)
-            throw new InvalidOperationException("The offhand model has no native gunshot sound bank.");
-        if (!sourceSound.Non_auto && sourceSound.Tail == null)
+        if (sourceSound == null)
+            throw new InvalidOperationException("The offhand model has no native weapon sound player.");
+        // FireBullet returns without a bank; a looping bank without its tail faults.
+        if (!PrefabRequirements.LoopTailAvailable(sourceSound.Non_auto, sourceSound.Body != null, sourceSound.Tail != null,
+            sourceSound.BodySilenced != null, sourceSound.TailSilenced != null))
             throw new InvalidOperationException("The native loop-based pistol audio has no release-tail bank; refusing before ammunition is consumed.");
         // A dedicated audio component owns its subscriptions. The pooled model's
         // component remains uninitialized and can be returned without leaking a
@@ -169,8 +173,9 @@ internal sealed class OffhandShotContext : Player.FirearmController
             ReleaseTrigger();
             return OffhandShotResult.Dry(primaryBefore, offhandBefore);
         }
-        if (ammo.ProjectileCount != 1 || !(ammo.InitialSpeed > 0f))
-            throw new InvalidOperationException("Only live single-projectile pistol ammunition is supported.");
+        int expectedProjectiles = ShotAccounting.ExpectedProjectiles(ammo.ProjectileCount, ammo.InitialSpeed);
+        if (expectedProjectiles == 0)
+            throw new InvalidOperationException("Only live projectile ammunition is supported; no ammunition consumed.");
         // EFT's firing routine ignores the chamber removal return value.
         // Validate it before handing control to that routine.
         if (!chamber.RemoveItem(simulate: true).Succeeded)
@@ -227,8 +232,8 @@ internal sealed class OffhandShotContext : Player.FirearmController
             if (diagnosticsEnabled) _metrics.NativeShotStartTicks = Stopwatch.GetTimestamp();
             Shot(Item, shot.AmmoToFire, 0);
             if (diagnosticsEnabled) _metrics.NativeShotEndTicks = Stopwatch.GetTimestamp();
-            if (_projectileCount != 1)
-                throw new InvalidOperationException("Expected exactly one registered native offhand projectile; stop and inspect the audit.");
+            if (!ShotAccounting.Complete(expectedProjectiles, _projectileCount))
+                throw new InvalidOperationException("Expected " + expectedProjectiles + " registered native offhand projectiles, got " + _projectileCount + "; stop and inspect the audit.");
             int finalPrimary = LiveAmmo(_primaryWeapon);
             int finalOffhand = LiveAmmo(Item);
             if (finalPrimary != primaryBefore || finalOffhand != offhandBefore - expectedDelta)
@@ -239,7 +244,7 @@ internal sealed class OffhandShotContext : Player.FirearmController
             return new OffhandShotResult(true, primaryBefore, finalPrimary,
                 offhandBefore, finalOffhand, shot.AmmoToFire.Id.ToString(),
                 Fireport.position, _sequence, _projectileCount, _metrics,
-                _projectileOrigin, _projectileDirection, _projectileDamage, _projectilePenetration, _projectileAmmoTemplate, malfunction);
+                _projectileOrigin, _projectileDirection, _projectileDamage, _projectilePenetration, _projectileAmmoTemplate, malfunction, expectedProjectiles);
         }
         catch
         {
@@ -348,7 +353,8 @@ internal sealed class OffhandShotContext : Player.FirearmController
         _firearmsAnimator.Malfunction((int)state);
         autoFireOn = false;
         BeginNativeAction();
-        string? clip = Item.SelectedFireMode != Weapon.EFireMode.fullauto
+        bool automatic = WeaponCompatibility.IsAutomaticOperation(Item.SelectedFireMode);
+        string? clip = !automatic
             ? (Item.SelectedFireMode == Weapon.EFireMode.semiauto ? _firearmsAnimator.FullSemiFireStateName : _firearmsAnimator.FullFireStateName)
             : state switch
             {
@@ -359,7 +365,7 @@ internal sealed class OffhandShotContext : Player.FirearmController
                 Weapon.EMalfunctionState.Feed => "FEED",
                 _ => null
             };
-        if (clip != null) _firearmsAnimator.Animator.Play(clip, 1, Item.SelectedFireMode == Weapon.EFireMode.fullauto ? 0f : .2f);
+        if (clip != null) _firearmsAnimator.Animator.Play(clip, 1, automatic ? 0f : .2f);
         InitiateOperation<StartMalfunction>().Start();
     }
 
@@ -428,6 +434,25 @@ internal sealed class OffhandShotContext : Player.FirearmController
         if (!inWeapon || magazine == null) return;
         _firearmsAnimator.SetAmmoOnMag(magazine.Count);
         _firearmsAnimator.SetMagTypeCurrent(magazine.magAnimationIndex);
+    }
+
+    // ReloadExternalMagOperation.OnMagAppeared for an insert into an empty well: attaches the incoming
+    // magazine's model under the magazine slot bone, only once the inventory holds it there. A
+    // magazine with a streaming animator is skipped: SetupMod would bind it to the right pistol's animator.
+    internal GameObject? ShowInsertedMagazine(Magazine magazine)
+    {
+        if (!_ready || _faulted) return null;
+        Slot slot = Item.GetMagazineSlot();
+        if (slot == null || !ReferenceEquals(slot.ContainedItem, magazine)) return null;
+        GameObject view = Singleton<ObjectsFactory>.Instance.CreateItem(magazine, Player.GetVisibleToCamera(_player), _player, isAnimated: true);
+        if (view == null) return null;
+        if (view.GetComponentInChildren<IStreamingAnimator>(true) != null)
+        {
+            AssetPoolObject.ReturnToPool(view);
+            return null;
+        }
+        Firearms.SetupMod(slot, view);
+        return view;
     }
 
     internal void SetNativeChamberState()
@@ -665,6 +690,7 @@ internal readonly struct OffhandShotResult
     internal Vector3 MuzzlePosition { get; }
     internal long Sequence { get; }
     internal int ProjectileCount { get; }
+    internal int ExpectedProjectiles { get; }
     internal OffhandShotMetrics Metrics { get; }
     internal Vector3 ProjectileOrigin { get; }
     internal Vector3 ProjectileDirection { get; }
@@ -678,7 +704,7 @@ internal readonly struct OffhandShotResult
         long sequence = 0, int projectileCount = 0, OffhandShotMetrics metrics = default,
         Vector3 projectileOrigin = default, Vector3 projectileDirection = default,
         float projectileDamage = 0f, float projectilePenetration = 0f, string ammoTemplate = "",
-        Weapon.EMalfunctionState malfunction = Weapon.EMalfunctionState.None)
+        Weapon.EMalfunctionState malfunction = Weapon.EMalfunctionState.None, int expectedProjectiles = 0)
     {
         Fired = fired;
         PrimaryBefore = primaryBefore;
@@ -689,6 +715,7 @@ internal readonly struct OffhandShotResult
         MuzzlePosition = muzzlePosition;
         Sequence = sequence;
         ProjectileCount = projectileCount;
+        ExpectedProjectiles = expectedProjectiles;
         Metrics = metrics;
         ProjectileOrigin = projectileOrigin;
         ProjectileDirection = projectileDirection;

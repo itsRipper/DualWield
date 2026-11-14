@@ -94,7 +94,7 @@ Check("Firing never swaps a controller item", !PM(context,"FireOnce").Body.Instr
 Check("Shadow destroy bypasses native Destroy", !Calls(PM(context,"Destroy")).Any(m=>m.DeclaringType.FullName == "EFT.Player/FirearmController" && m.Name == "Destroy"));
 Check("Shadow has no automatic native update operations", Calls(PM(context,"ManualUpdate")).Count()==0 && Calls(PM(context,"ManualLateUpdate")).Count()==0);
 Check("Audio shuts down synchronously before model return", CallsName(PM(context,"DisposeContext"),"Shutdown"));
-Check("Pooled model returned by unpair", CallsName(PM(runtime,"Unpair"),"ReturnToPool"));
+Check("Pooled model returned by unpair", CallsName(PM(runtime,"Unpair"),"ReturnOffhandModel") && !CallsName(PM(runtime,"Unpair"),"ReturnToPool"));
 Check("Pair-time network guard", CallsName(PM(runtime,"TryPair"),"HasFika") && CallsName(PM(runtime,"TryPair"),"PairRefusal"));
 Check("Shared rate adapter reads native single and automatic getters", CallsName(PM(runtime,"TryFire"),"GetShotRate") && CallsName(PM(pt["DualWieldLab.WeaponCompatibility"],"GetShotRate"),"get_SingleFireRate") && CallsName(PM(pt["DualWieldLab.WeaponCompatibility"],"GetShotRate"),"get_FireRate"));
 Check("No inventory-tree traversal while shooting", !CallsName(PM(runtime,"TryFire"),"GetAllItemsNonAlloc"));
@@ -110,6 +110,12 @@ Check("Switching preserves per-weapon cooldown", !PM(runtime,"Unpair").Body.Inst
 Check("Damage diagnostics use bounded arrays", pt["DualWieldLab.DamageDiagnostics"].Fields.Count(f=>f.FieldType is ArrayType)==2);
 MultiplayerChecks.Run(Check, project, plugin, game);
 RemoteSyncChecks.Run(Check);
+MechanismChecks.Run(Check, game, native.MainModule, plugin.MainModule);
+PrefabRequirementChecks.Run(Check, plugin.MainModule, native.MainModule);
+FailureScopeChecks.Run(Check, plugin.MainModule);
+BuckshotChecks.Run(Check, game, native.MainModule);
+MagazineViewChecks.Run(Check, plugin.MainModule, native.MainModule);
+GeometryKeyChecks.Run(Check, plugin.MainModule);
 NetworkSessionChecks.Run(Check);
 Check("No shot-path logger I/O", !Calls(PM(runtime,"TryFire")).Any(m=>m.Name=="LogInfo") && !Calls(PM(context,"FireOnce")).Any(m=>m.Name.StartsWith("Log")));
 // RemoteDualPistols.Replay creates a free ammunition object to replay another player's shot, as

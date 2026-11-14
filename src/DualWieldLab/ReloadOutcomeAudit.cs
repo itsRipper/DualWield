@@ -9,11 +9,12 @@ internal static class ReloadOutcomeAudit
             && ammunitionBefore >= 0 && ammunitionBefore == ammunitionAfter
             && otherBefore >= 0 && otherBefore == otherAfter;
 
+    // ReloadExternalMagResult.Run feeds an empty chamber only from a compatible magazine.
     internal static bool NativeCountsMatch(int chamberBefore, int oldBefore, int spareBefore,
-        int chamberAfter, int oldAfter, int spareAfter)
+        int chamberAfter, int oldAfter, int spareAfter, bool spareCompatible)
     {
         if (chamberBefore < 0 || chamberBefore > 1 || oldBefore < 0 || spareBefore <= 0) return false;
-        int fed = chamberBefore == 0 ? 1 : 0;
+        int fed = NativeFeed.Feeds(chamberBefore == 0, spareBefore, spareCompatible) ? 1 : 0;
         return chamberAfter == chamberBefore + fed && oldAfter == oldBefore && spareAfter == spareBefore - fed;
     }
 }

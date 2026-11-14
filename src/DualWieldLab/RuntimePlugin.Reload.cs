@@ -137,6 +137,10 @@ public sealed partial class RuntimePlugin
             || _primary.CurrentOperation is not Player.FirearmController.Idling || _primary.IsTriggerPressed
             || _primary.CurrentOperation is Player.FirearmController.UtilityOperation)
         { Notify("Release the triggers and wait until both pistols are ready."); return; }
+        // Refuse before the left pistol is lowered.
+        string? noSpare = NativeReloadService.Preflight(_player, _primary.Item, _preflightMagazines, out _);
+        _preflightMagazines.Clear();
+        if (noSpare != null) { RefuseReload("right", noSpare, ReloadFeedback.Refused(noSpare)); return; }
         StopPrimaryTrigger(); StopOffhandTrigger();
         if (!TryBeginReloadPresentation(draw: false))
         { SetStatus("Native offhand holster pose unavailable; reload not started and both items unchanged."); Notify("The reload is not available right now."); return; }
@@ -156,6 +160,17 @@ public sealed partial class RuntimePlugin
         SetStatus("Holstering left pistol visually for the native right reload.");
     }
 
+    private void RefuseReload(string hand, string refusal, ReloadFeedback feedback)
+    {
+        LogDiagnostic("DW_RELOAD step=preflight_refused hand=" + hand + " weapon_moves=0 reason=" + refusal);
+        if (feedback.NeedAmmoPhrase)
+        {
+            try { _primary?.ReloadMagNotFound(); }
+            catch (Exception e) { Logger.LogWarning("Need-ammo phrase failed: " + e.Message); }
+        }
+        Notify(feedback.Message);
+    }
+
     private void BeginOffhandMagazineReload()
     {
         if (_player == null || _primary == null || _secondary == null || _input == null || _shot == null
@@ -166,9 +181,7 @@ public sealed partial class RuntimePlugin
         string? refusal = InactiveMagazineReload.Preflight(_player, _primary, _secondary, out bool chamberNeeded, out Magazine? next);
         if (refusal != null)
         {
-            LogDiagnostic("DW_OFFHAND_RELOAD step=preflight_refused weapon_moves=0 reason=" + refusal);
-            LogDiagnostic("DW_NOTICE left reload refused: " + refusal);
-            Notify(refusal == InactiveMagazineReload.NoSpareMagazine ? refusal : "The left pistol cannot be reloaded right now.");
+            RefuseReload("left", refusal, ReloadFeedback.LeftRefused(refusal));
             return;
         }
         StopPrimaryTrigger(); StopOffhandTrigger();
@@ -186,7 +199,7 @@ public sealed partial class RuntimePlugin
             _offhandAction = action;
             _nativeReload = new OffhandNativeReload(action);
             _offhandReloadPresented = true;
-            _offhandMechanicsSynced = _offhandReloadSprinting = false;
+            _offhandMechanicsSynced = _offhandReloadSprinting = _offhandInsertShown = false;
             _offhandReload.UseChamberGate();
             _primary.WeaponSoundPlayer?.SoundEventHandler("SndHolster");
             LogDiagnostic("DW_OFFHAND_RELOAD step=presentation_started native_clip=True chamber_needed=" + chamberNeeded
@@ -231,16 +244,26 @@ public sealed partial class RuntimePlugin
             LogDiagnostic("DW_OFFHAND_RELOAD step=" + (sprinting ? "sprint_started" : "sprint_stopped") + " submitted=" + reload.Started);
         }
         // A clip that never reaches its first magazine event is ended natively at once.
-        if (_shot.NativeReloadActive && !events.MagOutSeen && _shot.NativeActionSeconds > 4f) FinishStuckNativeAction();
+        if (_shot.NativeReloadActive && !events.MagazineEventSeen && _shot.NativeActionSeconds > 4f) FinishStuckNativeAction();
         bool clipRunning = _shot.NativeReloadActive;
+        // An empty well has no magazine to take out: submit the insert as soon as the clip runs.
+        bool insert = !reload.Started && _secondary.GetCurrentMagazine() == null;
         // A clip that never reached its magazine events (refused, or ended) still settles the
         // transaction: the swap and feed run without waiting for an event that cannot come.
         bool clipGone = action == null || (action.State != OffhandNativeAction.Phase.Holstering
             && action.State != OffhandNativeAction.Phase.Reaching && action.State != OffhandNativeAction.Phase.AwaitingNative && !clipRunning);
-        if (!reload.Started && !reload.Interrupted && (events.MagOutSeen || clipGone))
+        if (!reload.Started && !reload.Interrupted && (events.MagOutSeen || clipGone || (insert && clipRunning)))
         {
-            LogDiagnostic("DW_OFFHAND_RELOAD step=mag_out native_event=" + events.MagOutSeen);
+            LogDiagnostic("DW_OFFHAND_RELOAD step=" + (insert ? "insert" : "mag_out") + " native_event=" + events.MagOutSeen);
             reload.Begin(_player, _primary, _secondary, LogDiagnostic);
+        }
+        // For a swap the old magazine's model stands in for OnMagAppeared; an empty well attaches the new one.
+        if (reload.Insert && reload.MagazineVerified && events.MagShown && !_offhandInsertShown && _offhandReloadNext != null)
+        {
+            _offhandInsertShown = true;
+            GameObject? view = _shot.ShowInsertedMagazine(_offhandReloadNext);
+            if (view != null) _visualRig?.Adopt(view);
+            LogDiagnostic("DW_OFFHAND_RELOAD step=insert_view shown=" + (view != null) + " magazine=" + _offhandReloadNext.Id);
         }
         if (reload.SwapSettled && !_offhandMechanicsSynced && events.MagInSeen)
         {
@@ -315,10 +338,15 @@ public sealed partial class RuntimePlugin
         _offhandReloadPresented = false;
         EndOffhandReloadPresentation();
         _offhandReload = null;
-        if (service.CompletionUncertain) _faulted = true;
         SetStatus(service.Message + (service.Interrupted ? " Interrupted; automatic pair restoration was not resumed." : ""));
         Player? player = _servicePlayer;
         Weapon? main = _returnMain, offhand = _returnOffhand;
+        // An unknown inventory outcome stops this pair for the raid; without both identities the runtime stops.
+        if (service.CompletionUncertain)
+        {
+            if (main != null && offhand != null) _quarantine.Add(main.Id.ToString(), offhand.Id.ToString());
+            else _faulted = true;
+        }
         bool restore = _settings.Enabled.Value && service.Verified && !service.Interrupted && _player == player
             && player != null && _primary != null && player.HandsController == _primary
             && main != null && offhand != null && ReloadAddressesMatch()
@@ -330,7 +358,7 @@ public sealed partial class RuntimePlugin
         if (restore && presented && service.Submitted)
         { RefreshPairInPlace(player!, main!, offhand!); return; }
         if (service.Submitted && _player != null)
-            Unpair(service.CompletionUncertain ? "Native inventory completion unknown; restart before pairing."
+            Unpair(service.CompletionUncertain ? "Native inventory completion unknown; this pair stays unpaired for the rest of the raid."
                 : "Native inactive-magazine transaction settled; release the cached offhand magazine view.");
         if (restore) ResumeReloadPair(player!, main!, offhand!, true);
         else CancelReload(service.Message);

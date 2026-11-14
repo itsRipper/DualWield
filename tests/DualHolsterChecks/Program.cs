@@ -36,6 +36,24 @@ Check("Left holster sits after the native holster with its own id",
     && slots.Select(s => s.Id).Distinct().Count() == slots.Count);
 Check("Left holster admits exactly the native holster's items",
     json.Serialize(left.Properties, false) == json.Serialize(holster.Properties, false) && left.Required == holster.Required);
+// A pistol mod that replaces the Holster's filters after AddTo (e.g. at PostLoad).
+var synced = json.Deserialize<TemplateItem>(database.RootElement.GetProperty(LeftHolster.DefaultInventory.ToString()).GetRawText())!;
+Check("Sync does nothing before the slot exists (uninstall mode)", !LeftHolster.Sync(synced));
+LeftHolster.AddTo(synced);
+var syncedSlots = synced.Properties!.Slots!.ToList();
+int nativeIndex = syncedSlots.FindIndex(s => s.Name == "Holster");
+var replacedProperties = json.Deserialize<SlotProperties>(json.Serialize(syncedSlots[nativeIndex].Properties, false)!)!;
+replacedProperties.Filters!.First().Filter!.Add(new MongoId("aaaaaaaaaaaaaaaaaaaaaaaa"));
+syncedSlots[nativeIndex] = syncedSlots[nativeIndex] with { Properties = replacedProperties };
+synced.Properties.Slots = syncedSlots;
+string LeftFilters() => json.Serialize(synced.Properties!.Slots!.Single(s => s.Name == LeftHolster.SlotName).Properties, false)!;
+string NativeFilters() => json.Serialize(synced.Properties!.Slots!.Single(s => s.Name == "Holster").Properties, false)!;
+Check("Without the late sync a replaced Holster filter misses the left holster", LeftFilters() != NativeFilters());
+Check("The late sync gives the left holster the Holster's current filters", LeftHolster.Sync(synced) && LeftFilters() == NativeFilters() && LeftFilters().Contains("aaaaaaaaaaaaaaaaaaaaaaaa"));
+var afterSync = synced.Properties.Slots!.ToList();
+Check("The late sync keeps the slot's own id, name and position, and is idempotent",
+    LeftHolster.Sync(synced) && afterSync.Count == syncedSlots.Count && afterSync.FindIndex(s => s.Name == LeftHolster.SlotName) == nativeIndex + 1
+    && afterSync.Single(s => s.Name == LeftHolster.SlotName).Id == LeftHolster.SlotId);
 var serialized = json.Serialize(inventory, false)!;
 Check("Template serializes the slot under its own name", serialized.Contains("\"_name\":\"HolsterLeft\"") && serialized.Contains(LeftHolster.SlotId.ToString()));
 
@@ -274,6 +292,7 @@ var poser = types.Single(t => t.Name == "MenuPlayerPoser");
 var menu = plugin.MainModule.Types.Single(t => t.Name == "MenuDualPistols");
 bool Calls(MethodDefinition m, string name) => m.HasBody && m.Body.Instructions.Any(i => i.Operand is MethodReference r && r.Name == name);
 MethodDefinition MenuMethod(string name) => menu.Methods.Single(m => m.Name == name);
+var returnModel = MenuMethod("ReturnPreviewModel");
 var loader = types.Single(t => t.Name == "PlayerModelLoader");
 Check("Character previews pick the item in hands without HOLSTERLEFT; the plugin falls back to the left holster pistol like the pistol key",
     loader.Methods.Single(m => m.Name == "GetItemInHands").Body.Instructions.Any(i => i.Operand is FieldReference f && f.Name == "ItemInHands" || i.Operand is MethodReference r && r.Name == "get_ItemInHands")
@@ -289,11 +308,30 @@ Check("Two-pistol preview: real left item model, both pistols placed by their ow
     Calls(MenuMethod("Attach"), "CreatePreviewWeapon") && Calls(MenuMethod("Attach"), "HasLeftHolster")
     // As PlayerModelLoader.CreateWeapon: pooled models come back inactive, and the animator is posed.
     && new[] { "CreateItem", "SetActive", "Init", "Play", "SetStockFolded", "SetMagInWeapon", "Update" }.All(n => Calls(MenuMethod("CreatePreviewWeapon"), n))
-    && Calls(MenuMethod("Release"), "ReturnToPool") && !Calls(MenuMethod("Release"), "Destroy")
+    && Calls(MenuMethod("Release"), "ReturnPreviewModel") && Calls(returnModel, "ReturnToPool") && !Calls(MenuMethod("Release"), "Destroy")
     && Calls(MenuMethod("AfterLateUpdate"), "StanceRoot") && Calls(MenuMethod("AfterLateUpdate"), "Place")
     && MenuMethod("AfterLateUpdate").Body.Instructions.Count(i => i.Operand is MethodReference r && r.Name == "Solve") == 2
     && Calls(MenuMethod("StanceRoot"), "BestAxis") && Calls(MenuMethod("AfterChangeWeapon"), "Release")
     && pluginType.Methods.Single(m => m.Name == "Awake").Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == "DualPistolCharacterPreview"));
+// The model must leave the poser, active and with its original layers, before ReturnToPool;
+// otherwise the next pooled copy (icons, previews) inherits the pose.
+int FirstCall(MethodDefinition m, string name) => m.HasBody ? m.Body.Instructions.ToList().FindIndex(i => i.Operand is MethodReference r && r.Name == name) : -1;
+Check("Preview model pooling: Release and Attach return the pooled model only through ReturnPreviewModel, never straight to the pool",
+    !Calls(MenuMethod("Release"), "ReturnToPool") && !Calls(MenuMethod("Attach"), "ReturnToPool")
+    && Calls(MenuMethod("Release"), "ReturnPreviewModel") && Calls(MenuMethod("Attach"), "ReturnPreviewModel"));
+Check("Preview model pooling: the model gets its layers back, leaves the poser and is activated before ReturnToPool",
+    FirstCall(returnModel, "set_layer") >= 0 && FirstCall(returnModel, "set_layer") < FirstCall(returnModel, "SetParent")
+    && FirstCall(returnModel, "SetParent") < FirstCall(returnModel, "SetActive") && FirstCall(returnModel, "SetActive") < FirstCall(returnModel, "ReturnToPool"));
+Check("Preview model pooling: the original layers are read before the preview re-layers the model",
+    FirstCall(MenuMethod("Attach"), "get_layer") >= 0 && FirstCall(MenuMethod("Attach"), "get_layer") < FirstCall(MenuMethod("Attach"), "Bind")
+    && Calls(MenuMethod("Bind"), "set_layer"));
+var weaponPrefab = types.Single(t => t.Name == "WeaponPrefab");
+Check("Installed EFT: a pooled weapon's animator is reset only while active in hierarchy, before the model is unparented, and item creation pops the pool",
+    Calls(weaponPrefab.Methods.Single(m => m.Name == "ResetStatesToDefault"), "get_activeInHierarchy")
+    && FirstCall(weaponPrefab.Methods.Single(m => m.Name == "ReturnToPool"), "ResetAnimator") >= 0
+    && FirstCall(weaponPrefab.Methods.Single(m => m.Name == "ReturnToPool"), "ResetAnimator") < FirstCall(weaponPrefab.Methods.Single(m => m.Name == "ReturnToPool"), "set_parent")
+    && // CreateItemAsync is an async state machine: look through the factory's nested types.
+    types.Where(t => t.FullName.StartsWith("EFT.ObjectsFactory/") && t.Name.Contains("CreateItemAsync")).SelectMany(t => t.Methods).Any(m => Calls(m, "PopOrCreate")));
 // EFT's menu idle randomly starts weapon operations (reload, magazine/chamber checks) and gestures,
 // and its HandPoser drives each hand's fingers from a grip pose: the preview must own both.
 Check("Native menu randomizer starts weapon operations, and HandPoser fingers come from grip poses",
@@ -307,9 +345,12 @@ Check("Dual preview suppresses random weapon operations, restores the native wea
     && !menu.Fields.Any(f => f.Name is "FlipZ" or "FlipX")
     && plugin.MainModule.Types.Single(t => t.Name == "HandMirror").Methods.Single(m => m.Name == "Create").Body.Instructions.Any(i => i.Operand is MethodReference r && r.Name == "get_bindposes"));
 Check("Preview cleanup: a failed bind returns the pooled left model, release restores the right pistol pose, and a left pistol leaving the slot ends the preview",
-    Calls(MenuMethod("Attach"), "ReturnToPool") && Calls(MenuMethod("Attach"), "Bind")
+    Calls(MenuMethod("Attach"), "ReturnPreviewModel") && Calls(MenuMethod("Attach"), "Bind")
     && MenuMethod("Release").Body.Instructions.Any(i => i.Operand is MethodReference r && r.Name == "set_localRotation")
     && Calls(MenuMethod("AfterLateUpdate"), "get_ContainedItem"));
+Check("Two-pistol preview takes any pair EFT holds as pistols (the runtime's shared rule), not only the Pistol class",
+    Calls(MenuMethod("Attach"), "HeldAsPistol") && Calls(MenuMethod("HeldAsPistol"), "Classify")
+    && !MenuMethod("Attach").Body.Instructions.Any(i => i.OpCode == OpCodes.Isinst && i.Operand is TypeReference t && t.Name == "Pistol"));
 // Quick slot 1: FastAccess binds Item1 to the Holster slot; the bound view shows whatever slot it
 // is given and reacts to adds/removes in that slot only. The plugin swaps only the view's slot.
 var boundView = types.Single(t => t.FullName == "EFT.UI.DragAndDrop.BoundSlotView");

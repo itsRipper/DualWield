@@ -67,14 +67,16 @@ internal static class ReloadClipChecks
             new[]{"DualWieldLab.OffhandNativeAction", "DualWieldLab.OffhandNativeReload", "DualWieldLab.LeftArmHandoff", "DualWieldLab.ReloadClip"}
                 .All(n => !All(new[]{pt[n]}).SelectMany(t => t.Methods).SelectMany(Calls).Any(c => inventory.Contains(c.Name))));
         var reload = pt["DualWieldLab.InactiveMagazineReload"];
-        check("Preflight simulates the native swap but submits nothing",
-            Has(M(reload, "Prepare"), "Swap") && Has(M(reload, "Prepare"), "CanExecute") && !Has(M(reload, "Preflight"), "Begin")
+        check("Preflight simulates the native swap, or the insert into an empty well, but submits nothing",
+            Has(M(reload, "Prepare"), "Swap") && Has(M(reload, "Prepare"), "Move") && Has(M(reload, "Prepare"), "CanExecute") && !Has(M(reload, "Preflight"), "Begin")
             && !Has(M(reload, "Prepare"), "TryRunNetworkTransaction") && !Has(M(reload, "Preflight"), "TryRunNetworkTransaction"));
         check("Interrupt releases a waiting chamber gate so it cannot submit later", Has(M(reload, "Interrupt"), "TrySetResult"));
         var runtime = pt["DualWieldLab.RuntimePlugin"];
         check("Native swap is submitted at the native clip's OnMagOut and the chamber feed at its OnAddAmmoInChamber",
             Has(M(runtime, "AdvanceOffhandReload"), "Begin") && Has(M(runtime, "AdvanceOffhandReload"), "ReleaseChamber")
             && Has(M(runtime, "AdvanceOffhandReload"), "get_MagOutSeen") && Has(M(runtime, "AdvanceOffhandReload"), "get_ChamberEvent"));
+        check("An empty-well insert does not wait for an OnMagOut the clip never plays",
+            Has(M(runtime, "AdvanceOffhandReload"), "GetCurrentMagazine") && Has(M(runtime, "AdvanceOffhandReload"), "get_MagazineEventSeen"));
         check("Alt+R refuses before animating when the native swap would be declined",
             Has(M(runtime, "BeginOffhandMagazineReload"), "Preflight"));
         check("Every unpair restores the borrowed right arm, right pistol and magazine",

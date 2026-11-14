@@ -7,21 +7,23 @@ using EFT.InventoryLogic;
 
 namespace DualWieldLab;
 
-// The native inventory UI's ReloadWeapon route, not FirearmController.ReloadMag.
-// Only magazines are operands. The native operation owns validation, resize,
-// synchronization and rollback. No hands controller or weapon address is changed.
+// The inventory UI's ReloadWeapon route, not FirearmController.ReloadMag: a Swap with the installed
+// magazine, or a Move into an empty well. The native operation owns validation, resize,
+// synchronization and rollback; no weapon address changes. The chamber is fed as EFT does (NativeFeed).
 internal sealed class InactiveMagazineReload
 {
     // Shown to the player as is: the one refusal with an obvious fix.
-    internal const string NoSpareMagazine = "No loaded spare magazine for the left pistol in your rig or pockets.";
+    internal const string NoSpareMagazine = ReloadFeedback.LeftNoSpare;
 
     private sealed class Plan
     {
         internal Weapon Main = null!;
-        internal Magazine Old = null!, Next = null!;
+        internal Magazine? Old;
+        internal Magazine Next = null!;
         internal Ammo? Chamber;
+        internal bool Feeds;
         internal ItemAddress MainAddress = null!, OffhandAddress = null!, SlotAddress = null!;
-        internal GridItemAddress Destination = null!;
+        internal GridItemAddress? Destination;
         internal Func<Task<bool>> SubmitSwap = null!;
     }
 
@@ -38,6 +40,8 @@ internal sealed class InactiveMagazineReload
     internal bool MagazineVerified { get; private set; }
     internal bool SwapSettled { get; private set; }
     internal bool ChamberNeeded { get; private set; }
+    // No magazine was installed: the next one is inserted.
+    internal bool Insert { get; private set; }
     internal bool AwaitingChamberRelease => _chamberGate != null && !_chamberGate.Task.IsCompleted && SwapSettled;
     internal bool CompletionUncertain { get; private set; }
     internal string Message { get; private set; } = "";
@@ -61,7 +65,7 @@ internal sealed class InactiveMagazineReload
         try
         {
             var plan = Prepare(player, controller, offhand);
-            chamberNeeded = plan.Chamber == null;
+            chamberNeeded = plan.Feeds;
             next = plan.Next;
             return null;
         }
@@ -84,34 +88,44 @@ internal sealed class InactiveMagazineReload
             || (offhand.Chambers[0].ContainedItem != null && offhand.Chambers[0].ContainedItem is not Ammo)
             || offhand.Chambers[0].ContainedItem is Ammo spent && spent.IsUsed)
             throw new InvalidOperationException("Native chamber configuration is unsupported or contains a used cartridge.");
-        Magazine old = offhand.GetCurrentMagazine();
-        if (old == null || !inventory.Examined(offhand) || !inventory.Examined(old)
-            || old.PinLockState == EItemPinLockState.Locked)
+        Magazine? old = offhand.GetCurrentMagazine();
+        if (!inventory.Examined(offhand) || (old != null && (!inventory.Examined(old) || old.PinLockState == EItemPinLockState.Locked)))
             throw new InvalidOperationException("Native existing weapon/magazine examination or lock check refused reload.");
         var mainAddress = main.CurrentAddress;
         var offhandAddress = offhand.CurrentAddress;
         if (mainAddress == null || offhandAddress == null) throw new InvalidOperationException("Native weapon addresses unavailable.");
         Slot slot = offhand.GetMagazineSlot();
+        // Like EFT's reload: the fullest reachable magazine that fits the slot, compatible rounds or not.
         var magazines = new List<Magazine>(32);
         inventory.GetReachableItemsOfTypeNonAlloc(magazines, m => m.Count > 0);
         magazines.Sort((a,b) => b.Count.CompareTo(a.Count));
         Magazine? next = magazines.FirstOrDefault(m => !ReferenceEquals(m, old)
             && m.CurrentAddress is GridItemAddress && ReferenceEquals(m.Owner, inventory)
             && inventory.Examined(m) && m.PinLockState != EItemPinLockState.Locked
-            && m.IsAmmoCompatible(offhand.Chambers) && slot.CanAccept(m));
+            && slot.CanAccept(m));
         if (next == null) throw new InvalidOperationException(NoSpareMagazine);
-        var destination = player.Equipment.GetPrioritizedGridsForUnloadedObject(backpackIncluded: true)
+        var slotAddress = slot.CreateItemAddress();
+        var chamber = offhand.Chambers[0].ContainedItem as Ammo;
+        var plan = new Plan { Main = main, Old = old, Next = next, Chamber = chamber,
+            Feeds = NativeFeed.Feeds(chamber == null, next.Count, next.IsAmmoCompatible(offhand.Chambers)),
+            MainAddress = mainAddress, OffhandAddress = offhandAddress, SlotAddress = slotAddress };
+        if (old == null)
+        {
+            var insert = ItemManipulator.Move(next, slotAddress, inventory, simulate: true);
+            if (insert.Failed) throw new InvalidOperationException("Native magazine-insert simulation declined: " + insert.Error);
+            if (!insert.Value.CanExecute(inventory)) throw new InvalidOperationException("Native magazine operation is not executable; nothing submitted.");
+            plan.SubmitSwap = async () => (await inventory.TryRunNetworkTransaction(insert)).Succeed;
+            return plan;
+        }
+        plan.Destination = player.Equipment.GetPrioritizedGridsForUnloadedObject(backpackIncluded: true)
             .Select(g => g.FindLocationForItem(old)).Where(a => a != null)
             .OrderBy(a => a.Grid.GridWidth * a.Grid.GridHeight).FirstOrDefault();
-        if (destination == null) throw new InvalidOperationException("No native storage for the old magazine; nothing dropped or moved.");
-        var slotAddress = slot.CreateItemAddress();
-        var operation = ItemManipulator.Swap(old, destination, next, slotAddress, inventory, simulate: true);
+        if (plan.Destination == null) throw new InvalidOperationException("No native storage for the old magazine; nothing dropped or moved.");
+        var operation = ItemManipulator.Swap(old, plan.Destination, next, slotAddress, inventory, simulate: true);
         if (operation.Failed) throw new InvalidOperationException("Native magazine-swap simulation declined: " + operation.Error);
         if (!operation.Value.CanExecute(inventory)) throw new InvalidOperationException("Native magazine operation is not executable; nothing submitted.");
-        return new Plan { Main = main, Old = old, Next = next, Chamber = offhand.Chambers[0].ContainedItem as Ammo,
-            MainAddress = mainAddress, OffhandAddress = offhandAddress, SlotAddress = slotAddress,
-            Destination = destination,
-            SubmitSwap = async () => (await inventory.TryRunNetworkTransaction(operation)).Succeed };
+        plan.SubmitSwap = async () => (await inventory.TryRunNetworkTransaction(operation)).Succeed;
+        return plan;
     }
 
     internal async void Begin(Player player, Player.FirearmController controller, Weapon offhand, Action<string> trace)
@@ -124,15 +138,18 @@ internal sealed class InactiveMagazineReload
             var inventory = player.InventoryController;
             var plan = Prepare(player, controller, offhand);
             Weapon main = plan.Main;
-            Magazine old = plan.Old, next = plan.Next;
+            Magazine? old = plan.Old;
+            Magazine next = plan.Next;
             Ammo? chamber = plan.Chamber;
-            ChamberNeeded = chamber == null;
+            ChamberNeeded = plan.Feeds;
+            Insert = old == null;
             var mainAddress = plan.MainAddress; var offhandAddress = plan.OffhandAddress;
             var slotAddress = plan.SlotAddress; var destination = plan.Destination;
-            int oldCount = old.Count, newCount = next.Count, mainAmmo = RuntimePlugin.CountAmmo(main);
+            int oldCount = old?.Count ?? 0, newCount = next.Count, mainAmmo = RuntimePlugin.CountAmmo(main);
             string mainId = main.Id.ToString(), offhandId = offhand.Id.ToString();
-            string oldId = old.Id.ToString(), newId = next.Id.ToString();
-            trace("DW_OFFHAND_RELOAD step=submit old_mag=" + oldId + " next_mag=" + newId
+            string oldId = old?.Id.ToString() ?? "", newId = next.Id.ToString();
+            trace("DW_OFFHAND_RELOAD step=submit mode=" + (Insert ? "insert" : "swap") + " old_mag=" + (Insert ? "none" : oldId)
+                + " next_mag=" + newId + " chamber_feed=" + ChamberNeeded
                 + " weapon_moves=0 main_address=" + NativeReloadService.DescribeAddress(mainAddress)
                 + " offhand_address=" + NativeReloadService.DescribeAddress(offhandAddress));
             Pending = Submitted = true;
@@ -141,17 +158,17 @@ internal sealed class InactiveMagazineReload
             _awaitingNativeResult = false;
             // The canonical inventory magazine operation deliberately preserves
             // the chamber. Verify that first before considering a separate feed.
+            bool oldStored = old == null || (ReferenceEquals(old.Owner, inventory)
+                && NativeReloadService.SameAddress(old.CurrentAddress, destination) && old.Count == oldCount);
             MagazineVerified = NativeSucceeded && ReferenceEquals(offhand.GetCurrentMagazine(), next)
-                && ReferenceEquals(old.Owner, inventory) && ReferenceEquals(next.Owner, inventory)
-                && NativeReloadService.SameAddress(old.CurrentAddress, destination)
-                && old.Count == oldCount && next.Count == newCount
+                && oldStored && ReferenceEquals(next.Owner, inventory) && next.Count == newCount
                 && ReferenceEquals(offhand.Chambers[0].ContainedItem, chamber)
                 && NativeReloadService.SameAddress(main.CurrentAddress, mainAddress)
                 && NativeReloadService.SameAddress(offhand.CurrentAddress, offhandAddress);
             SwapSettled = true;
             bool fed = false;
             string? fedTemplate = null;
-            if (MagazineVerified && chamber == null && !Interrupted)
+            if (MagazineVerified && ChamberNeeded && !Interrupted)
             {
                 if (_chamberGate != null)
                 {
@@ -181,30 +198,31 @@ internal sealed class InactiveMagazineReload
                 if (!fed) throw new InvalidOperationException("Magazine installed, but native chamber transaction declined: " + feedResult.Error);
             }
             bool identities = main.Id.ToString() == mainId && offhand.Id.ToString() == offhandId
-                && old.Id.ToString() == oldId && next.Id.ToString() == newId && oldId != newId;
+                && (old?.Id.ToString() ?? "") == oldId && next.Id.ToString() == newId && oldId != newId;
             bool ownership = ReferenceEquals(main.Owner, inventory) && ReferenceEquals(offhand.Owner, inventory)
-                && ReferenceEquals(old.Owner, inventory) && ReferenceEquals(next.Owner, inventory);
+                && (old == null || ReferenceEquals(old.Owner, inventory)) && ReferenceEquals(next.Owner, inventory);
             bool addresses = NativeReloadService.SameAddress(main.CurrentAddress, mainAddress)
                 && NativeReloadService.SameAddress(offhand.CurrentAddress, offhandAddress);
             bool installed = ReferenceEquals(offhand.GetCurrentMagazine(), next)
                 && NativeReloadService.SameAddress(next.CurrentAddress, slotAddress)
-                && NativeReloadService.SameAddress(old.CurrentAddress, destination);
+                && (old == null || NativeReloadService.SameAddress(old.CurrentAddress, destination));
             Ammo? finalChamber = offhand.Chambers[0].ContainedItem as Ammo;
-            bool chamberCorrect = chamber != null ? ReferenceEquals(finalChamber, chamber)
+            // Not fed (no compatible round to take): the chamber stays as it was.
+            bool chamberCorrect = !ChamberNeeded ? ReferenceEquals(finalChamber, chamber)
                 : fed && finalChamber != null && finalChamber.StringTemplateId == fedTemplate
                     && ReferenceEquals(finalChamber.Owner, inventory) && finalChamber.StackObjectsCount == 1;
+            bool chamberLive = finalChamber == null || (!finalChamber.IsUsed && ReferenceEquals(finalChamber.Owner, inventory)
+                && NativeReloadService.SameAddress(finalChamber.CurrentAddress, offhand.Chambers[0].CreateItemAddress()));
             bool counts = MagazineReplacementAudit.Counts(oldCount, newCount, chamber == null ? 0 : 1,
-                old.Count, next.Count, offhand.ChamberAmmoCount)
-                && chamberCorrect && finalChamber != null && !finalChamber.IsUsed
-                && ReferenceEquals(finalChamber.Owner, inventory)
-                && NativeReloadService.SameAddress(finalChamber.CurrentAddress, offhand.Chambers[0].CreateItemAddress());
+                old?.Count ?? 0, next.Count, offhand.ChamberAmmoCount, next.IsAmmoCompatible(offhand.Chambers))
+                && chamberCorrect && chamberLive;
             Verified = MagazineReplacementAudit.Verified(NativeSucceeded, identities, ownership, addresses,
                 installed, counts, Interrupted || RuntimePlugin.CountAmmo(main) == mainAmmo);
             Message = Verified ? "Native left magazine reload verified; native chamber ready and both pistol addresses unchanged."
                 : "Native left magazine result could not be fully verified; inspect inventory. No retry, refund or forced rollback.";
             trace("DW_OFFHAND_RELOAD step=settled native_success=" + NativeSucceeded + " verified=" + Verified
                 + " interrupted=" + Interrupted + " pistol_addresses_unchanged=" + addresses
-                + " old_count=" + old.Count + " next_count=" + next.Count + " chamber_fed=" + fed + " ammo_verified=" + counts + " weapon_moves=0");
+                + " old_count=" + (old?.Count ?? 0) + " next_count=" + next.Count + " chamber_fed=" + fed + " ammo_verified=" + counts + " weapon_moves=0");
         }
         catch (Exception e)
         {

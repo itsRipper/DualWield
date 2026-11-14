@@ -25,7 +25,7 @@ internal static class ReloadCallbackChecks
         var inventory = nt["EFT.InventoryLogic.InventoryController"];
         var reload = nt["EFT.Player/FirearmController/ReloadExternalMagOperation"];
         var startCalls = new[] { service }.Concat(service.NestedTypes).SelectMany(t => t.Methods)
-            .Where(m => m.Name == "TryPlanReload" || m.Name == "StartNativeReload" || m.Name.Contains("<StartNativeReload>") || m.Name.Contains("<TryPlanReload>"))
+            .Where(m => m.Name == "TryPlanReload" || m.Name == "Plan" || m.Name == "StartNativeReload" || m.Name.Contains("<StartNativeReload>") || m.Name.Contains("<TryPlanReload>") || m.Name.Contains("<Plan>"))
             .SelectMany(Calls).ToArray();
         check("Native equip entry preserves TryProceed validation", Has(M(nativePlayer, "SetItemInHands"), "TryProceed") && Has(M(nativePlayer, "SetItemInHands"), "CheckAction"));
         check("Native equip reachability uses actual bindable equipment set", M(inventory, "IsAtReachablePlace").Body.Instructions.Any(i => i.Operand is FieldReference f && f.Name == "BindAvailableSlotsExtended"));

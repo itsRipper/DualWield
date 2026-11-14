@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0
+
+For SPT 4.1 (EFT 0.16.9.40743), optionally with Fika 2.4.x.
+
+- Added support for modded magazine-fed pistols.
+- Improved compatibility when dual wielding different pistols.
+- Pistols can now be dual wielded without a magazine.
+- Improved left-hand reloading, including magazine insertion.
+- Fixed several weapon compatibility, animation and inventory issues.
+- Fika compatibility maintained.
+
+Currently supports magazine-fed pistols only. Revolver support is planned for v1.3.0.
+
 ## 1.1.1
 
 Hotfix for SPT 4.1 (EFT 0.16.9.40743), with optional Fika 2.4.x support.

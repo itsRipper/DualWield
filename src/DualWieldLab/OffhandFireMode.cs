@@ -18,7 +18,7 @@ internal static class OffhandFireMode
             || !player.HealthController.IsAlive || !player.FirstPersonPointOfView || player.IsInventoryOpened)
             return false;
         Weapon main = primary.Item;
-        if (ReferenceEquals(main, offhand) || main.Id == offhand.Id || !(offhand is Pistol)
+        if (ReferenceEquals(main, offhand) || main.Id == offhand.Id || !WeaponCompatibility.IsCandidate(offhand)
             || !ReferenceEquals(main.Owner, player.InventoryController)
             || !ReferenceEquals(offhand.Owner, player.InventoryController) || offhand.CurrentAddress == null)
         return false;

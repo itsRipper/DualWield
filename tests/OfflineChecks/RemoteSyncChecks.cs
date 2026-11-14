@@ -81,6 +81,16 @@ internal static class RemoteSyncChecks
         check("Copy: a copy behind the owner is never topped up and waits", Is(Plan(10, true, 8, true), false, 0, true));
         check("Copy: an equal copy changes nothing", Is(Plan(10, true, 10, true), false, 0, false));
         check("Copy: never removes more rounds than the copy holds", Plan(0, false, 1, false).RemoveFromMagazine <= 1);
+        // No magazine installed: the snapshot's magazine id is "" on both sides.
+        check("Copy without magazine: the owner's chambered round fired empties the copy's chamber",
+            Is(RemoteSyncPolicy.Plan("", 0, false, "", 0, true), true, 0, false));
+        check("Copy without magazine: an equal copy changes nothing", Is(RemoteSyncPolicy.Plan("", 0, true, "", 0, true), false, 0, false));
+        check("Copy without magazine: a magazine inserted on the owner is waited for, nothing removed",
+            Is(RemoteSyncPolicy.Plan("m1", 17, true, "", 0, true), false, 0, true));
+        check("Copy without magazine: an insert that fed the owner's empty chamber is waited for, never fabricated",
+            Is(RemoteSyncPolicy.Plan("m1", 16, true, "", 0, false), false, 0, true));
+        check("Copy without magazine: the insert arrived here and the copy is in sync",
+            Is(RemoteSyncPolicy.Plan("m1", 16, true, "m1", 16, true), false, 0, false));
 
         check("Copy race: a late chambering operation ends exactly at the owner's rounds, never below", LateChamberingEndsInSync());
         check("Copy race: a chambering operation that never arrives costs no round (copy total never below the owner's)", LostChamberingKeepsRounds());

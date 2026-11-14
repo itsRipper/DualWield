@@ -30,6 +30,20 @@ public static class LeftHolster
         return true;
     }
 
+    // AddTo shares the Holster's filter objects, so in-place edits reach both slots; this re-copies the
+    // definition for a mod that replaced them afterwards. False when the slot is not added.
+    public static bool Sync(TemplateItem inventory)
+    {
+        var slots = inventory.Properties?.Slots?.ToList();
+        if (slots == null) return false;
+        int left = slots.FindIndex(s => s.Name == SlotName);
+        var holster = slots.FirstOrDefault(s => s.Name == NativeHolster);
+        if (left < 0 || holster == null) return false;
+        slots[left] = holster with { Name = SlotName, Id = SlotId };
+        inventory.Properties!.Slots = slots;
+        return true;
+    }
+
     // The installed death predicate looks the slot name up as a LostEquipment property and
     // keeps anything it does not know. The left holster follows the native Holster rule.
     public static bool? KeptAfterDeath(LostOnDeathConfig config, PmcData pmc, Item item)

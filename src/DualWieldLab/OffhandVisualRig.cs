@@ -19,12 +19,13 @@ internal sealed class OffhandVisualRig
     private readonly Transform _fireport;
     internal Transform Fireport => _fireport;
     private readonly Transform _primaryFireport;
-    private readonly Renderer[] _renderers;
-    private readonly int[] _layers;
-    private readonly bool[] _forcedOff;
-    private readonly ShadowCastingMode[] _shadows;
-    private readonly SkinnedMeshRenderer[] _skins;
-    private readonly bool[] _offscreen;
+    // Grown only by Adopt, never per frame.
+    private Renderer[] _renderers;
+    private int[] _layers;
+    private bool[] _forcedOff;
+    private ShadowCastingMode[] _shadows;
+    private SkinnedMeshRenderer[] _skins;
+    private bool[] _offscreen;
     private readonly Camera? _camera;
     private readonly int _nativeLayer;
     private bool _restored;
@@ -64,23 +65,26 @@ internal sealed class OffhandVisualRig
     // ends of a transition coincide with the ready pose (see AlignToMirroredGun).
     private static readonly System.Collections.Generic.Dictionary<string, (Vector3 Position, Quaternion Rotation)> MirrorOffsets = new();
     private readonly string _pairKey;
+    private readonly string _rightKey;
     internal bool GripCorrectionSettled => _gripCorrectionSettled;
     internal string GripCorrectionSummary { get; private set; } = "";
 
     internal string DiagnosticSummary { get; }
 
-    private OffhandVisualRig(GameObject model, WeaponPrefab prefab, Player.FirearmController primary, string pairKey)
+    private OffhandVisualRig(GameObject model, WeaponPrefab prefab, Player.FirearmController primary, string rightKey, string pairKey)
     {
         _model = model.transform;
         _primary = primary;
         _pairKey = pairKey;
+        _rightKey = rightKey;
         _parent = primary.ControllerGameObject.transform;
         _root = prefab.Hierarchy.GetTransform(ECharacterWeaponBones.Weapon_root);
         _primaryRoot = primary.HandsHierarchy.GetTransform(ECharacterWeaponBones.Weapon_root);
         _primaryFireport = primary.CurrentFireport.Original;
         if (_root == null || _primaryRoot == null || _primaryFireport == null)
             throw new InvalidOperationException("Native offhand/primary presentation transforms are missing.");
-        _fireport = FindFireport(model);
+        _fireport = PrefabProbe.NativeFireport(prefab)
+            ?? throw new InvalidOperationException("The assembled offhand has no native fireport.");
         _animatedWeapon = VisibleWeaponNode(_fireport, _root);
         _rightVisibleGun = VisibleWeaponNode(_primaryFireport, _primaryRoot);
         _camera = CameraManager.Instance?.Camera;
@@ -99,8 +103,6 @@ internal sealed class OffhandVisualRig
             throw new InvalidOperationException("The primary has no active native geometry renderer to establish its first-person layer.");
 
         _renderers = Array.FindAll(model.GetComponentsInChildren<Renderer>(true), IsGeometry);
-        if (_renderers.Length == 0)
-            throw new InvalidOperationException("The assembled offhand has no mesh renderers.");
         _layers = new int[_renderers.Length];
         _forcedOff = new bool[_renderers.Length];
         _shadows = new ShadowCastingMode[_renderers.Length];
@@ -154,25 +156,42 @@ internal sealed class OffhandVisualRig
             + "; independent secondary prefab under the live primary hands object. No player animator rebind.";
     }
 
-    internal static OffhandVisualRig Create(GameObject model, WeaponPrefab prefab, Player.FirearmController primary, string pairKey)
+    internal static OffhandVisualRig Create(GameObject model, WeaponPrefab prefab, Player.FirearmController primary, string rightKey, string pairKey)
     {
         if (model == null || prefab == null || primary == null)
             throw new ArgumentNullException("An offhand visual dependency is missing.");
-        return new OffhandVisualRig(model, prefab, primary, pairKey);
+        return new OffhandVisualRig(model, prefab, primary, rightKey, pairKey);
     }
 
     private static bool IsGeometry(Renderer renderer) => renderer is MeshRenderer || renderer is SkinnedMeshRenderer;
 
-    private static Transform FindFireport(GameObject model)
+    // A model attached after the rig was built (the inserted magazine): same layer, visibility and restore.
+    internal void Adopt(GameObject attached)
     {
-        Transform? result = null;
-        foreach (Transform transform in model.GetComponentsInChildren<Transform>(true))
+        if (_restored || attached == null) return;
+        Renderer[] renderers = Array.FindAll(attached.GetComponentsInChildren<Renderer>(true), IsGeometry);
+        int first = _renderers.Length;
+        Array.Resize(ref _renderers, first + renderers.Length);
+        Array.Resize(ref _layers, _renderers.Length);
+        Array.Resize(ref _forcedOff, _renderers.Length);
+        Array.Resize(ref _shadows, _renderers.Length);
+        for (int i = 0; i < renderers.Length; i++)
         {
-            if (transform.name != WeaponPrefab.BONE_FIREPORT || !transform.gameObject.activeInHierarchy) continue;
-            if (result != null) throw new InvalidOperationException("Multiple active offhand fireports are unsupported.");
-            result = transform;
+            _renderers[first + i] = renderers[i];
+            _layers[first + i] = renderers[i].gameObject.layer;
+            _forcedOff[first + i] = renderers[i].forceRenderingOff;
+            _shadows[first + i] = renderers[i].shadowCastingMode;
         }
-        return result ?? throw new InvalidOperationException("The assembled offhand has no active native fireport.");
+        SkinnedMeshRenderer[] skins = attached.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+        int firstSkin = _skins.Length;
+        Array.Resize(ref _skins, firstSkin + skins.Length);
+        Array.Resize(ref _offscreen, _skins.Length);
+        for (int i = 0; i < skins.Length; i++)
+        {
+            _skins[firstSkin + i] = skins[i];
+            _offscreen[firstSkin + i] = skins[i].updateWhenOffscreen;
+        }
+        ApplyPresentationFlags();
     }
 
     private void ApplyPresentationFlags()
@@ -379,7 +398,7 @@ internal sealed class OffhandVisualRig
         _leftMarkerIdle = RelativePose(leftGun, leftMarker);
         _leftPalmIdle = Matrix4x4.TRS(palmPosition, palmRotation, Vector3.one);
         if (RightHandsIdle()) MeasureRightGrip(settle: true);
-        else if (IdleRightMarkers.TryGetValue(primary.Item.StringTemplateId, out Matrix4x4 known)) ApplyRightGrip(known, settle: true, "cached");
+        else if (IdleRightMarkers.TryGetValue(_rightKey, out Matrix4x4 known)) ApplyRightGrip(known, settle: true, "cached");
         else
         {
             _gripCorrectionPosition = Vector3.zero;
@@ -395,7 +414,7 @@ internal sealed class OffhandVisualRig
     internal string IdleMarkerCheck()
     {
         if (_rightMarker == null || _rightGun == null || !RightHandsIdle()
-            || !IdleRightMarkers.TryGetValue(_primary.Item.StringTemplateId, out Matrix4x4 recorded)) return "marker_check=n/a";
+            || !IdleRightMarkers.TryGetValue(_rightKey, out Matrix4x4 recorded)) return "marker_check=n/a";
         Matrix4x4 live = RelativePose(_rightGun, _rightMarker);
         return "marker_recorded_vs_live_m=" + Vector3.Distance(recorded.GetColumn(3), live.GetColumn(3)).ToString("F4")
             + " marker_recorded_vs_live_deg=" + Quaternion.Angle(recorded.rotation, live.rotation).ToString("F2");
@@ -416,7 +435,7 @@ internal sealed class OffhandVisualRig
     {
         if (_rightMarker == null || _rightGun == null) return;
         Matrix4x4 kRight = RelativePose(_rightGun, _rightMarker);
-        if (settle) IdleRightMarkers[_primary.Item.StringTemplateId] = kRight;
+        if (settle) IdleRightMarkers[_rightKey] = kRight;
         ApplyRightGrip(kRight, settle, "live");
     }
 

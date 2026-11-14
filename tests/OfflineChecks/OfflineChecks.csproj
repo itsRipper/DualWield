@@ -7,6 +7,13 @@
   <ItemGroup>
     <Compile Include="..\..\src\DualWieldLab\PairPolicy.cs" Link="PairPolicy.cs" />
     <Compile Include="..\..\src\DualWieldLab\PistolMechanics.cs" Link="PistolMechanics.cs" />
+    <Compile Include="..\..\src\DualWieldLab\FirearmClassification.cs" Link="FirearmClassification.cs" />
+    <Compile Include="..\..\src\DualWieldLab\PrefabRequirements.cs" Link="PrefabRequirements.cs" />
+    <Compile Include="..\..\src\DualWieldLab\PairQuarantine.cs" Link="PairQuarantine.cs" />
+    <Compile Include="..\..\src\DualWieldLab\ShotAccounting.cs" Link="ShotAccounting.cs" />
+    <Compile Include="..\..\src\DualWieldLab\NativeFeed.cs" Link="NativeFeed.cs" />
+    <Compile Include="..\..\src\DualWieldLab\GeometryKey.cs" Link="GeometryKey.cs" />
+    <Compile Include="..\..\src\DualWieldLab\ReloadFeedback.cs" Link="ReloadFeedback.cs" />
     <Compile Include="..\..\src\DualWieldLab\PistolAnimation.cs" Link="PistolAnimation.cs" />
     <Compile Include="..\..\src\DualWieldLab\TriggerEdgeGate.cs" Link="TriggerEdgeGate.cs" />
     <Compile Include="..\..\src\DualWieldLab\PairInputBarrier.cs" Link="PairInputBarrier.cs" />

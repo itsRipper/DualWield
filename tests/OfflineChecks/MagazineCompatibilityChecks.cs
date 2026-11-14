@@ -23,9 +23,11 @@ internal static class MagazineCompatibilityChecks
         MethodDefinition M(TypeDefinition t,string n)=>t.Methods.Single(m=>m.Name==n);
         IEnumerable<MethodReference> Calls(MethodDefinition m)=>m.HasBody?m.Body.Instructions.Select(i=>i.Operand).OfType<MethodReference>():[];
         bool Has(MethodDefinition m,string n)=>Calls(m).Any(c=>c.Name==n);
-        var service=pt["DualWieldLab.NativeReloadService"];var plan=M(service,"TryPlanReload");
+        var service=pt["DualWieldLab.NativeReloadService"];var plan=M(service,"Plan");
         check("Reload selection has no magazine-template equality gate",!Calls(plan).Any(c=>c.Name=="get_StringTemplateId"));
-        check("Reload selection still uses native magazine slot and ammo compatibility",Has(plan,"CheckMoveIgnoringTargetItem")&&Has(plan,"IsAmmoCompatible")&&Has(plan,"GetReachableItemsOfTypeNonAlloc"));
+        check("Reload selection mirrors EFT's R key: native slot fit, no ammunition-compatibility filter",Has(M(service,"TryPlanReload"),"Plan")&&Has(plan,"CheckMoveIgnoringTargetItem")&&!Has(plan,"IsAmmoCompatible")&&Has(plan,"GetReachableItemsOfTypeNonAlloc")
+            &&!Has(M(nt["EFT.FirearmHandsInputTranslator"],"ReloadExternalMagazine"),"IsAmmoCompatible")&&Has(M(nt["EFT.FirearmHandsInputTranslator"],"ReloadExternalMagazine"),"CheckMoveIgnoringTargetItem"));
+        check("The right reload audit expects a chamber feed only from a compatible magazine",Has(M(service,"StartNativeReload"),"IsAmmoCompatible"));
         check("Reload reserves no return footprint because neither pistol changes address", !service.Methods.Any(m=>m.Name is "CanReturnWithMagazine" or "OverlapsReturnSpace")&&Has(M(service,"StartNativeReload"),"AddressesMatch"));
         check("Native magazine planning never assigns a different magazine or item address",!Calls(plan).Any(c=>c.Name is "set_ContainedItem" or "set_Parent" or "Move" or "Swap" or "Add" or "Remove"));
         check("Old magazine storage is selected through occupied native grid placement",Has(plan,"FindLocationForItem")||service.NestedTypes.SelectMany(t=>t.Methods).SelectMany(Calls).Any(c=>c.Name=="FindLocationForItem"));

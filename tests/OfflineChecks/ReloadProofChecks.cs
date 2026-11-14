@@ -16,11 +16,14 @@ internal static class ReloadProofChecks
         check("Reloading left cannot consume right-hand cartridges", !ReloadOutcomeAudit.Verified(true,true,true,true,30,30,17,16));
         check("Reloading right cannot fabricate offhand cartridges", !ReloadOutcomeAudit.Verified(true,true,true,true,30,30,17,18));
         check("Negative cartridge counts cannot verify a reload", !ReloadOutcomeAudit.Verified(true,true,true,true,-1,-1,17,17));
-        check("Tactical native reload retains chamber and both magazine counts", ReloadOutcomeAudit.NativeCountsMatch(1,7,17,1,7,17));
-        check("Empty native reload feeds exactly one cartridge from replacement", ReloadOutcomeAudit.NativeCountsMatch(0,0,17,1,0,16));
-        check("Chambered cartridge cannot be fabricated from unchanged magazine", !ReloadOutcomeAudit.NativeCountsMatch(0,0,17,1,0,17));
-        check("Old magazine cannot silently lose ammunition during reload", !ReloadOutcomeAudit.NativeCountsMatch(1,7,17,1,6,17));
-        check("Empty compatible replacement cannot claim usable reload", !ReloadOutcomeAudit.NativeCountsMatch(0,0,0,0,0,0));
+        check("Tactical native reload retains chamber and both magazine counts", ReloadOutcomeAudit.NativeCountsMatch(1,7,17,1,7,17,true));
+        check("Empty native reload feeds exactly one cartridge from replacement", ReloadOutcomeAudit.NativeCountsMatch(0,0,17,1,0,16,true));
+        check("Chambered cartridge cannot be fabricated from unchanged magazine", !ReloadOutcomeAudit.NativeCountsMatch(0,0,17,1,0,17,true));
+        check("Old magazine cannot silently lose ammunition during reload", !ReloadOutcomeAudit.NativeCountsMatch(1,7,17,1,6,17,true));
+        check("Empty compatible replacement cannot claim usable reload", !ReloadOutcomeAudit.NativeCountsMatch(0,0,0,0,0,0,true));
+        check("Right insert into an empty pistol (no old magazine) feeds the empty chamber once", ReloadOutcomeAudit.NativeCountsMatch(0,0,17,1,0,16,true));
+        check("Right reload with an incompatible magazine installs it and feeds nothing, as EFT",
+            ReloadOutcomeAudit.NativeCountsMatch(0,0,17,0,0,17,false) && !ReloadOutcomeAudit.NativeCountsMatch(0,0,17,1,0,16,false));
         IEnumerable<TypeDefinition> All(IEnumerable<TypeDefinition> types) => types.SelectMany(t=>new[]{t}.Concat(All(t.NestedTypes)));
         var pt=All(plugin.MainModule.Types).ToDictionary(t=>t.FullName);
         var nt=All(native.MainModule.Types).ToDictionary(t=>t.FullName);
