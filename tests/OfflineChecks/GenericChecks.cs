@@ -5,29 +5,42 @@ internal static class GenericChecks
 {
     internal static void Run(Action<string,bool> check, string game)
     {
-        PistolFacts valid = new() { IsNativePistol=true, ExternalMagazineReload=true,
-            ChamberCount=1, HasMagazine=true, MagazineExternal=true, AmmoCompatible=true,
+        PistolFacts valid = new() { Handling=HandlingClass.Pistol, Mechanism=FirearmMechanism.MagazineFed,
             TriggerMode=PistolTriggerMode.Single };
         check("Regular magazine pistol mechanics accepted without model identity", PistolMechanics.GetRefusal(valid,"test")==null);
         var f=valid;f.TriggerMode=PistolTriggerMode.SemiAutomatic;
         check("Native semiautomatic selector accepted", PistolMechanics.GetRefusal(f,"test")==null);
         f.TriggerMode=PistolTriggerMode.FullAutomatic;
         check("Native automatic selector accepted by shared mechanics",PistolMechanics.GetRefusal(f,"test")==null);
-        foreach (var mode in new[]{PistolTriggerMode.Burst,PistolTriggerMode.DoubleAction,PistolTriggerMode.Doublet,PistolTriggerMode.Unsupported}) {
+        foreach (var mode in new[]{PistolTriggerMode.Burst,PistolTriggerMode.Doublet}) {
+            f=valid;f.TriggerMode=mode;check("Native magazine-weapon selector accepted: "+mode,PistolMechanics.GetRefusal(f,"test")==null);
+        }
+        foreach (var mode in new[]{PistolTriggerMode.DoubleAction,PistolTriggerMode.Unsupported}) {
             f=valid;f.TriggerMode=mode;check("Unsupported selector safely refused: "+mode,PistolMechanics.GetRefusal(f,"test")!=null);
         }
-        f=valid;f.IsNativePistol=false;check("Revolver/other native types refused",PistolMechanics.GetRefusal(f,"test")!=null);
-        f=valid;f.BoltAction=true;check("Manual bolt pistol mechanism refused",PistolMechanics.GetRefusal(f,"test")!=null);
-        f=valid;f.OneOff=true;check("One-off pistol mechanism refused",PistolMechanics.GetRefusal(f,"test")!=null);
-        f=valid;f.ExternalMagazineReload=false;check("Internal magazine mechanism refused",PistolMechanics.GetRefusal(f,"test")!=null);
-        f=valid;f.ChamberCount=2;check("Multiple-chamber mechanism refused",PistolMechanics.GetRefusal(f,"test")!=null);
-        f=valid;f.MagazineBeltOrCylinder=true;check("Belt/cylinder magazine refused",PistolMechanics.GetRefusal(f,"test")!=null);
+        f=valid;f.Handling=HandlingClass.Other;check("A weapon EFT does not hold as a pistol is refused",PistolMechanics.GetRefusal(f,"test")?.Contains("not a pistol")==true);
+        foreach (FirearmMechanism mechanism in Enum.GetValues(typeof(FirearmMechanism)))
+        {
+            if (mechanism==FirearmMechanism.MagazineFed) continue;
+            f=valid;f.Mechanism=mechanism;
+            string? refusal=PistolMechanics.GetRefusal(f,"Offhand");
+            check("Unsupported mechanism refused with its own reason: "+mechanism,refusal!=null && refusal.StartsWith("Offhand ") && refusal.Length>"Offhand ".Length+10
+                && refusal==("Offhand "+FirearmMechanismPolicy.Refusal(mechanism)));
+        }
+        check("Revolvers are refused as revolvers, not as an unknown type",FirearmMechanismPolicy.Refusal(FirearmMechanism.Cylinder).Contains("revolver"));
         f=valid;f.MissingVitalParts=true;check("Missing parts refused",PistolMechanics.GetRefusal(f,"test")!=null);
         f=valid;f.Malfunctioned=true;check("Existing malfunction refused without repair",PistolMechanics.GetRefusal(f,"test")!=null);
         f=valid;f.Suppressed=true;check("Suppressed pistols are accepted (per-weapon native acoustics)",PistolMechanics.GetRefusal(f,"test")==null);
-        f=valid;f.AmmoCompatible=false;check("Incompatible chamber/magazine ammo refused",PistolMechanics.GetRefusal(f,"test")!=null);
-        f=valid;f.HasMagazine=false;check("Absent magazine conservative boundary",PistolMechanics.GetRefusal(f,"test")!=null);
-        check("Empty installed magazine is compatible independently of ammo count",PistolMechanics.GetRefusal(valid,"test")==null);
+        // EFT fires without a magazine and keeps an incompatible one installed without feeding; neither refuses a pair.
+        check("No magazine or ammunition-compatibility fact can refuse a pair",
+            !typeof(PistolFacts).GetFields(System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Public)
+                .Any(x=>x.Name.Contains("Magazine")||x.Name.Contains("AmmoCompatible")));
+        // NativeFeed: (chamber empty, magazine rounds, rounds fit the chamber); no magazine = 0 rounds.
+        check("Feed: an empty chamber takes the top round of a compatible loaded magazine",NativeFeed.Feeds(true,17,true));
+        check("Feed: a pistol without a magazine never feeds (only its chambered round fires)",!NativeFeed.Feeds(true,0,true));
+        check("Feed: an incompatible magazine stays installed and never feeds",!NativeFeed.Feeds(true,17,false));
+        check("Feed: a loaded chamber is never fed again",!NativeFeed.Feeds(false,17,true));
+        check("Feed: an empty magazine feeds nothing",!NativeFeed.Feeds(true,0,true));
         check("450/600 RPM are independently computed, not constants",Math.Abs(PairPolicy.ShotInterval(450)-.1333333333333333)<1e-12 && Math.Abs(PairPolicy.ShotInterval(600)-.1)<1e-12);
         var cooldowns=new Dictionary<string,double>();
         cooldowns["main"]=PairPolicy.NextShotTime(0,450);cooldowns["offhand"]=PairPolicy.NextShotTime(0,600);

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Text;
 using EFT;
 using EFT.CameraControl;
@@ -21,6 +21,8 @@ internal sealed class OffhandHandPose
     // NativeArmRetarget.CaptureRightGripReference), captured only at settled idle: a mid-draw
     // finger pose taken as the reference bends the left grip for the whole pair.
     private static readonly System.Collections.Generic.Dictionary<string, Quaternion[]> IdleRightGrips = new();
+    // Grips are cached per assembled build, not per template.
+    private readonly string _rightKey;
     private readonly Player.FirearmController _primary;
     private bool _gripReferenceSettled;
     private bool _offhandSelectorActive, _offhandSelectorObserved;
@@ -65,8 +67,9 @@ internal sealed class OffhandHandPose
         && _offhandWeapon.NoFiremodeOnBoltcatch && _offhandFirearmsAnimator.GetBoltCatch());
 
     private OffhandHandPose(NativeArmRetarget arms, Transform body, Transform model,
-        Player.FirearmController primary, WeaponPrefab prefab, Weapon offhandWeapon)
+        Player.FirearmController primary, WeaponPrefab prefab, Weapon offhandWeapon, string rightKey)
     {
+        _rightKey = rightKey;
         _arms = arms; _bodyReference = body; _model = model;
         _upperArm = arms.LeftUpperArm; _elbow = arms.LeftElbow; _palm = arms.LeftPalm;
         _drawFrom = new Quaternion[arms.ChainLength];
@@ -86,15 +89,15 @@ internal sealed class OffhandHandPose
         _offhandFirearmsAnimator.SetFireMode(_offhandWeapon.SelectedFireMode, skipAnimation: true);
         _arms.EnableAlternatingLocomotion();
         _primary = primary;
-        if (PrimaryIdle()) { IdleRightGrips[primary.Item.StringTemplateId] = _arms.CaptureRightGripReference(); _gripReferenceSettled = true; }
-        else if (IdleRightGrips.TryGetValue(primary.Item.StringTemplateId, out Quaternion[] known))
+        if (PrimaryIdle()) { IdleRightGrips[rightKey] = _arms.CaptureRightGripReference(); _gripReferenceSettled = true; }
+        else if (IdleRightGrips.TryGetValue(rightKey, out Quaternion[] known))
         { _arms.UseRightGripReference(known); _gripReferenceSettled = true; }
         DiagnosticSummary = "Live native FPS arm retarget: " + arms.BoneCount
             + " mapped bones including forearm twists and " + arms.FingerCount
             + " fingers; source captured before offhand writes. Native skin/gloves retained.";
     }
 
-    internal static OffhandHandPose Create(Player player, Player.FirearmController primary, WeaponPrefab offhandPrefab, Weapon offhandWeapon)
+    internal static OffhandHandPose Create(Player player, Player.FirearmController primary, WeaponPrefab offhandPrefab, Weapon offhandWeapon, string rightKey)
     {
         if (player == null || primary == null || offhandPrefab == null || player.HandsController != primary)
             throw new InvalidOperationException("The native first-person primary changed before arm binding.");
@@ -104,7 +107,7 @@ internal sealed class OffhandHandPose
             Transform donor = offhandPrefab.Hierarchy.GetTransform(ECharacterWeaponBones.HumanRPalm);
             if (donor == null) throw new InvalidOperationException("The offhand native grip donor is unavailable.");
             arms.ConfigureFingerGrip(donor);
-            return new OffhandHandPose(arms, player.Transform.Original, offhandPrefab.transform, primary, offhandPrefab, offhandWeapon);
+            return new OffhandHandPose(arms, player.Transform.Original, offhandPrefab.transform, primary, offhandPrefab, offhandWeapon, rightKey);
         }
         catch { arms.Restore(); throw; }
     }
@@ -128,7 +131,7 @@ internal sealed class OffhandHandPose
         _arms.CaptureNativePose();
         if (!_gripReferenceSettled && PrimaryIdle())
         {
-            IdleRightGrips[_primary.Item.StringTemplateId] = _arms.CaptureRightGripReference();
+            IdleRightGrips[_rightKey] = _arms.CaptureRightGripReference();
             _gripReferenceSettled = true;
         }
         // Bones are still the native evaluation here: the start of a smooth draw.
@@ -179,7 +182,8 @@ internal sealed class OffhandHandPose
     // resulting native selector state for the arm.
     internal void BeginOffhandSelector()
     {
-        if (!CanChangeOffhandSelector) return;
+        // No selector states: change mode immediately.
+        if (!CanChangeOffhandSelector || !SelectorAnimated) return;
         // A single-mode pistol has no selector action to fabricate.
         if (_offhandWeapon.FireMode?.AvailableEFireModes == null
             || _offhandWeapon.FireMode.AvailableEFireModes.Length < 2) return;
@@ -198,6 +202,8 @@ internal sealed class OffhandHandPose
     internal bool HoldNativeAnimation { get; set; }
 
     internal bool OffhandSelectorActive => _offhandSelectorActive;
+
+    internal bool SelectorAnimated { get; set; } = true;
 
     // Holster/draw presentation: the gun leads (NativeClipRetarget) instead of the clip's raw arm.
     internal bool PresentationFollowsGun { get; set; }

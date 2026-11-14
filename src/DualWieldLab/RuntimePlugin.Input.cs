@@ -60,7 +60,8 @@ public sealed partial class RuntimePlugin
             return false;
         }
         if (command == ECommand.ToggleAlternativeShooting && self._secondary != null && self._trigger.ClaimNative(Time.frameCount, allowed,
-                self._input?.IsAimHeld() ?? false, WeaponCompatibility.GetTriggerMode(self._secondary.SelectedFireMode))) self.TryFire();
+                self._input?.IsAimHeld() ?? false, WeaponCompatibility.GetTriggerMode(self._secondary.SelectedFireMode),
+                WeaponCompatibility.GetBurstShotsCount(self._secondary))) self.TryFire();
         return false;
     }
 
@@ -396,7 +397,9 @@ public sealed partial class RuntimePlugin
     {
         top = null;
         if (offhand.Chambers.Length != 1 || offhand.Chambers[0].ContainedItem != null) return false;
-        top = offhand.GetCurrentMagazine()?.Cartridges?.Last as Ammo;
+        Magazine? magazine = offhand.GetCurrentMagazine();
+        if (magazine == null || !NativeFeed.Feeds(true, magazine.Count, magazine.IsAmmoCompatible(offhand.Chambers))) return false;
+        top = magazine.Cartridges.Last as Ammo;
         return top != null && !top.IsUsed;
     }
 
@@ -479,7 +482,7 @@ public sealed partial class RuntimePlugin
             nativeStarted = true;
             bool primaryFiring = _primary.IsTriggerPressed;
             OffhandShotResult result = _shot.FireOnce(inputTicks, _settings.Diagnostics.Value,
-                _trigger.Holding && _secondary.SelectedFireMode == Weapon.EFireMode.fullauto);
+                _trigger.Repeating && WeaponCompatibility.IsAutomaticOperation(_secondary.SelectedFireMode));
             if (result.Malfunction != Weapon.EMalfunctionState.None)
             {
                 // The pair stays: the left pistol keeps its native malfunction, the right keeps firing.
@@ -522,8 +525,7 @@ public sealed partial class RuntimePlugin
             {
                 if (_shot != null)
                     Logger.LogError("DW_FAILURE native_projectiles=" + _shot.LastProjectileCount + "; offhand_ammo=" + CountAmmo(_secondary!) + "; primary_ammo=" + CountAmmo(_primary!.Item));
-                _faulted = true;
-                Unpair("Stopped: " + e.Message + " Restart the test session before re-pairing.");
+                QuarantinePair(_primary!.Item, _secondary!, e.Message);
                 Logger.LogError("Offhand native path failed; no retry or inventory rollback performed: " + e);
             }
             else

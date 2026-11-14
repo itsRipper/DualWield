@@ -17,15 +17,8 @@ internal enum PistolTriggerMode
 
 internal struct PistolFacts
 {
-    internal bool IsNativePistol;
-    internal bool ExternalMagazineReload;
-    internal bool BoltAction;
-    internal bool OneOff;
-    internal int ChamberCount;
-    internal bool HasMagazine;
-    internal bool MagazineExternal;
-    internal bool MagazineBeltOrCylinder;
-    internal bool AmmoCompatible;
+    internal HandlingClass Handling;
+    internal FirearmMechanism Mechanism;
     internal bool MissingVitalParts;
     internal bool Malfunctioned;
     internal bool Suppressed;
@@ -36,27 +29,32 @@ internal static class PistolMechanics
 {
     internal static string? GetRefusal(PistolFacts facts, string side)
     {
-        if (!facts.IsNativePistol) return side + " is not a regular native pistol";
-        if (facts.BoltAction || facts.OneOff) return side + " uses an unsupported manual or one-off mechanism";
-        if (facts.ChamberCount != 1) return side + " requires exactly one firing chamber";
-        if (!facts.ExternalMagazineReload) return side + " requires ordinary external-magazine reload mechanics";
+        if (facts.Handling != HandlingClass.Pistol) return side + " is not a pistol (EFT does not hold it as one)";
+        if (!FirearmMechanismPolicy.IsSupported(facts.Mechanism)) return side + " " + FirearmMechanismPolicy.Refusal(facts.Mechanism);
         if (facts.MissingVitalParts) return side + " is missing vital parts";
         if (facts.Malfunctioned) return side + " has a malfunction; unpair and service it natively";
-        if (!facts.HasMagazine) return side + " requires an installed magazine";
-        if (!facts.MagazineExternal || facts.MagazineBeltOrCylinder) return side + " has an unsupported magazine mechanism";
-        if (!facts.AmmoCompatible) return side + " magazine ammunition is incompatible with its chamber";
         if (!IsSupportedMode(facts.TriggerMode))
-            return side + " selected fire mode is unsupported; select native single, semiautomatic or fullauto";
+            return side + " selected fire mode is unsupported; select native single, semiautomatic, fullauto, burst or doublet";
         return null;
     }
 
+    // Double action is a revolver mode. On a magazine weapon doublet is an ordinary FireOperation
+    // (one round per press); burst runs in AutomaticFireOperation.
     internal static bool IsSupportedMode(PistolTriggerMode mode) => mode == PistolTriggerMode.Single
-        || mode == PistolTriggerMode.SemiAutomatic || mode == PistolTriggerMode.FullAutomatic;
+        || mode == PistolTriggerMode.SemiAutomatic || mode == PistolTriggerMode.FullAutomatic
+        || mode == PistolTriggerMode.Burst || mode == PistolTriggerMode.Doublet;
+
+    // Modes EFT fires through AutomaticFireOperation: its cyclic FireRate and loop audio.
+    internal static bool IsAutomaticOperation(PistolTriggerMode mode) => mode == PistolTriggerMode.FullAutomatic || mode == PistolTriggerMode.Burst;
+
+    // Rounds after the first of a burst: AutomaticFireOperation fires until BurstShotsCount have left
+    // (default 3 without a fire-mode component).
+    internal static int BurstFollowUps(int burstShotsCount) => Math.Max(0, burstShotsCount - 1);
 
     internal static double EffectiveRate(PistolTriggerMode mode, int nativeSingleRate, int nativeAutoRate, float overheatMultiplier)
     {
         if (!IsSupportedMode(mode)) throw new InvalidOperationException("Unsupported native trigger mode.");
-        double rate = mode == PistolTriggerMode.FullAutomatic
+        double rate = IsAutomaticOperation(mode)
             ? nativeAutoRate * (overheatMultiplier > 0f ? (double)overheatMultiplier : 1d)
             : nativeSingleRate;
         if (double.IsNaN(rate) || double.IsInfinity(rate) || rate <= 0d)

@@ -8,13 +8,18 @@ internal static class AmmunitionConservationChecks
         foreach (int capacity in new[]{17,19,21,31,33,50})
         {
             check("Inventory replacement preserves loaded chamber and magazine counts at capacity "+capacity,
-                MagazineReplacementAudit.Counts(0,capacity,1,0,capacity,1));
+                MagazineReplacementAudit.Counts(0,capacity,1,0,capacity,1,true));
             check("Native one-round feed conserves total cartridges at capacity "+capacity,
-                MagazineReplacementAudit.Counts(0,capacity,0,0,capacity-1,1));
+                MagazineReplacementAudit.Counts(0,capacity,0,0,capacity-1,1,true));
         }
-        check("Missing native feed cannot become a completed empty reload",!MagazineReplacementAudit.Counts(0,17,0,0,17,0));
-        check("Double feed or fabricated ammunition cannot pass reload audit",!MagazineReplacementAudit.Counts(0,17,0,0,15,1)&&!MagazineReplacementAudit.Counts(0,17,0,0,17,1));
-        check("Old magazine cartridge loss is rejected",!MagazineReplacementAudit.Counts(3,50,1,2,50,1));
+        check("Missing native feed cannot become a completed empty reload",!MagazineReplacementAudit.Counts(0,17,0,0,17,0,true));
+        check("Double feed or fabricated ammunition cannot pass reload audit",!MagazineReplacementAudit.Counts(0,17,0,0,15,1,true)&&!MagazineReplacementAudit.Counts(0,17,0,0,17,1,true));
+        check("Old magazine cartridge loss is rejected",!MagazineReplacementAudit.Counts(3,50,1,2,50,1,true));
+        check("Insert into an empty well with a chambered round: nothing fed, counts unchanged",MagazineReplacementAudit.Counts(0,17,1,0,17,1,true));
+        check("Insert into an empty pistol with an empty chamber feeds exactly one round",MagazineReplacementAudit.Counts(0,17,0,0,16,1,true)&&!MagazineReplacementAudit.Counts(0,17,0,0,17,0,true));
+        check("An incompatible magazine installs without feeding; a feed from it is fabricated",
+            MagazineReplacementAudit.Counts(5,17,0,5,17,0,false)&&!MagazineReplacementAudit.Counts(5,17,0,5,16,1,false));
+        check("An insert cannot invent an old magazine's rounds",!MagazineReplacementAudit.Counts(0,17,1,3,17,1,true));
         for(int failed=0;failed<7;failed++)
         {
             var p=Enumerable.Repeat(true,7).ToArray();p[failed]=false;
@@ -34,7 +39,7 @@ internal static class AmmunitionConservationChecks
         var service=pt["DualWieldLab.InactiveMagazineReload"];
         var methods=All(new[]{service}).SelectMany(t=>t.Methods).ToArray();var calls=methods.SelectMany(Calls).ToArray();
         var worker=service.NestedTypes.Single(t=>t.Name.Contains("<Begin>"));var body=M(worker,"MoveNext");
-        check("Offhand submits actual native magazine and chamber operations",calls.Any(c=>c.Name=="Swap")&&Has(body,"ApplyToAddress")&&calls.Count(c=>c.Name=="TryRunNetworkTransaction")==2);
+        check("Offhand submits actual native magazine (swap or insert) and chamber operations",calls.Any(c=>c.Name=="Swap")&&calls.Any(c=>c.Name=="Move")&&Has(body,"ApplyToAddress")&&calls.Count(c=>c.Name=="TryRunNetworkTransaction")==3);
         check("Native simulation failure precedes submission; native authority stays intact",Has(body,"get_Failed")&&calls.Any(c=>c.Name=="CanAccept")&&calls.Any(c=>c.Name=="IsAmmoCompatible")&&calls.Any(c=>c.Name=="Examined"));
         check("Offhand never equips or relocates either weapon through a hands controller",!calls.Any(c=>c.Name is "SetItemInHands" or "SetEmptyHands" or "set_HandsController" or "ReloadMag"));
         check("No direct cartridge mutation, handmade item or synthetic stack assignment",!calls.Any(c=>c.Name is "PopTo" or "AddItem" or "CreateItem" or "set_StackObjectsCount" or "set_Parent"));
@@ -57,9 +62,9 @@ internal static class AmmunitionConservationChecks
             Calls(M(runtime,"Update")).First().Name=="ObserveOffhandMagazineReload");
         check("Native chamber transaction is limited to the validated original active scope",
             Has(body,"get_IsAlive")&&Has(body,"get_FirstPersonPointOfView")&&Has(body,"get_IsInventoryOpened")&&Has(body,"get_CurrentOperation"));
-        check("Unknown native completion locks out another paired submission instead of retrying",
+        check("Unknown native completion locks that pair out for the raid instead of retrying",
             Has(body,"set_CompletionUncertain")&&Has(M(runtime,"ObserveOffhandMagazineReload"),"get_CompletionUncertain")
-            &&Field(M(runtime,"ObserveOffhandMagazineReload"),"_faulted"));
+            &&Calls(M(runtime,"ObserveOffhandMagazineReload")).Any(c=>c.Name=="Add"&&c.DeclaringType.Name=="PairQuarantine"));
         check("Each offhand request clears any earlier reload-success diagnostic state",
             Field(M(runtime,"BeginOffhandMagazineReload"),"_returnReloadVerified"));
     }

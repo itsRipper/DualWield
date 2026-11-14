@@ -14,7 +14,8 @@ check uses EFT's own weapon logic.
 - Independent firing, recoil, sound, suppressors and malfunctions; single and full-auto modes.
 - Reloads, fire-mode changes, magazine and chamber checks and examine for either pistol, also
   while sprinting.
-- Mixed pairs of different pistol models.
+- Magazine-fed pistols, including pistols added by other mods, in any combination; pistols
+  without a magazine work too.
 - Both pistols are drawn and holstered together and shown in the character previews.
 - An uninstall migration that keeps your pistols.
 
@@ -32,7 +33,7 @@ check uses EFT's own weapon logic.
    up in `BepInEx\plugins\DualWieldLab`.
 3. Start the server and the game.
 
-To update, for example from 1.1.0, extract the new ZIP over the old files. Your settings are
+To update, for example from 1.1.1, extract the new ZIP over the old files. Your settings are
 kept and nothing has to be removed.
 
 ## Fika co-op
@@ -82,7 +83,7 @@ mouse button) and press the same key.
 | `Alt+Click` a pistol | Equip it; if the right holster is taken it goes into the left one. |
 
 `Mouse4`, `Alt+V`, `Alt+R` and `Alt+B` can be changed with the BepInEx configuration manager
-(`F12`); see [docs/CONFIGURATION.md](https://github.com/itsRipper/DualWield/blob/main/docs/CONFIGURATION.md).
+(`F12`); see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## Uninstalling
 
@@ -96,7 +97,7 @@ Deleting the files alone leaves profiles that no longer load. Migrate first:
 
 Left-holster pistols move to the empty holster or a free stash cell. If a profile cannot be
 migrated, for example because the stash is full, nothing in it changes and the server says so.
-Details: [docs/UNINSTALL.md](https://github.com/itsRipper/DualWield/blob/main/docs/UNINSTALL.md).
+Details: [docs/UNINSTALL.md](docs/UNINSTALL.md).
 
 ## Known issues and work in progress
 
@@ -105,8 +106,8 @@ Details: [docs/UNINSTALL.md](https://github.com/itsRipper/DualWield/blob/main/do
   or the left pistol's shell ejection (the results are synchronised). During your right pistol's
   reload or checks, your left pistol briefly disappears for them. Joining a raid that has already
   started is not supported by Fika; reconnecting is.
-- Revolver support is in progress. Signal pistols, single-shot weapons and burst modes are not
-  supported.
+- Only magazine-fed pistols are supported. Revolvers and other weapon types are not, and
+  DualWield tells you when it refuses a pistol. Revolver support is planned for v1.3.0.
 - The left pistol can show a round in an empty chamber.
 - The left pistol moves slightly with each right shot.
 - The first draw of a new pair settles into the stance over about 0.2 s.
@@ -114,6 +115,6 @@ Details: [docs/UNINSTALL.md](https://github.com/itsRipper/DualWield/blob/main/do
 
 ## Building and licence
 
-See [docs/BUILDING.md](https://github.com/itsRipper/DualWield/blob/main/docs/BUILDING.md). DualWield by ItsRipper is released under the
+See [docs/BUILDING.md](docs/BUILDING.md). DualWield by ItsRipper is released under the
 [MIT License](LICENSE); see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). It is a fan-made
 mod, not affiliated with Battlestate Games or the SPT team.

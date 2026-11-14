@@ -33,6 +33,7 @@ internal sealed class NativeReloadService
     private GridItemAddress? _oldMagazineDestination;
     private int _reloadAmmoBefore, _otherAmmoBefore;
     private int _chamberBefore, _oldCountBefore, _nextCountBefore;
+    private bool _nextCompatible;
     private bool _nativeReloadSucceeded, _completionChecked;
 
     internal bool Active => _stage != Stage.Idle;
@@ -178,6 +179,7 @@ internal sealed class NativeReloadService
         _reloadAmmoBefore = controller.Item.ChamberAmmoCount + (_oldMagazine?.Count ?? 0) + next.Count;
         _chamberBefore = controller.Item.ChamberAmmoCount;
         _oldCountBefore = _oldMagazine?.Count ?? 0; _nextCountBefore = next.Count;
+        _nextCompatible = next.IsAmmoCompatible(controller.Item.Chambers);
         _otherAmmoBefore = OtherWeaponAmmo();
         int generation = _callbacks.Version;
         Trace("reload_requested");
@@ -193,30 +195,46 @@ internal sealed class NativeReloadService
 
     private bool TryPlanReload(Weapon target, out string refusal)
     {
+        bool planned = Plan(_player!, target, _magazines, out _oldMagazine, out _nextMagazine, out _oldMagazineDestination, out refusal);
+        if (planned) Trace("candidate_planned");
+        return planned;
+    }
+
+    internal const string NoSpareMagazine = ReloadFeedback.RightNoSpare;
+    internal const string NoRoomForOldMagazine = "No room for the right pistol's old magazine.";
+    internal const string UnsupportedMechanism = "This reload mechanism can eject chamber ammunition and is not supported by the paired reload audit.";
+
+    // The same plan without starting anything, so a refused reload never animates.
+    internal static string? Preflight(Player player, Weapon target, List<Magazine> buffer, out Magazine? next)
+        => Plan(player, target, buffer, out _, out next, out _, out string refusal) ? null : refusal;
+
+    private static bool Plan(Player player, Weapon target, List<Magazine> magazines, out Magazine? old, out Magazine? planned,
+        out GridItemAddress? oldDestination, out string refusal)
+    {
         refusal = "";
-        _oldMagazine = target.GetCurrentMagazine();
-        _nextMagazine = null; _oldMagazineDestination = null;
+        old = target.GetCurrentMagazine();
+        planned = null; oldDestination = null;
         if (target.MustBoltBeOpennedForExternalReload)
-        { refusal = "This reload mechanism can eject chamber ammunition and is not supported by the paired reload audit."; return false; }
-        _magazines.Clear();
-        _player!.InventoryController.GetReachableItemsOfTypeNonAlloc(_magazines, m => m.Count > 0);
-        _magazines.Sort((a, b) => b.Count.CompareTo(a.Count));
+        { refusal = UnsupportedMechanism; return false; }
+        magazines.Clear();
+        player.InventoryController.GetReachableItemsOfTypeNonAlloc(magazines, m => m.Count > 0);
+        magazines.Sort((a, b) => b.Count.CompareTo(a.Count));
         Slot magazineSlot = target.GetMagazineSlot();
         Magazine current = target.GetCurrentMagazine();
-        string lastRefusal = "No compatible loaded native reachable magazine. No reload requested.";
-        foreach (Magazine next in _magazines)
+        string lastRefusal = NoSpareMagazine;
+        // FirearmHandsInputTranslator.ReloadExternalMagazine: the fullest reachable magazine that fits.
+        // An empty well is an insert: no old magazine to store.
+        foreach (Magazine next in magazines)
         {
-            if (ReferenceEquals(next, current) || next.Parent?.Container.ParentItem is Weapon
-                || !next.IsAmmoCompatible(target.Chambers)) continue;
-            var nativeFit = ItemManipulator.CheckMoveIgnoringTargetItem(next, magazineSlot, _player.InventoryController);
+            if (ReferenceEquals(next, current) || next.Parent?.Container.ParentItem is Weapon) continue;
+            var nativeFit = ItemManipulator.CheckMoveIgnoringTargetItem(next, magazineSlot, player.InventoryController);
             if (nativeFit.Failed) continue;
-            GridItemAddress? destination = current == null ? null : _player.Equipment.GetPrioritizedGridsForUnloadedObject()
+            GridItemAddress? destination = current == null ? null : player.Equipment.GetPrioritizedGridsForUnloadedObject()
                 .Select(g => g.FindLocationForItem(current)).Where(a => a != null)
                 .OrderBy(a => a.Grid.GridWidth * a.Grid.GridHeight).FirstOrDefault();
             if (current != null && destination == null)
-            { lastRefusal = "No native storage space for the old magazine; no reload requested."; continue; }
-            _oldMagazine = current; _nextMagazine = next; _oldMagazineDestination = destination;
-            Trace("candidate_planned");
+            { lastRefusal = NoRoomForOldMagazine; continue; }
+            old = current; planned = next; oldDestination = destination;
             return true;
         }
         refusal = lastRefusal;
@@ -246,7 +264,7 @@ internal sealed class NativeReloadService
         _reloadSucceeded = ReloadOutcomeAudit.Verified(_nativeReloadSucceeded, owned, installedCorrect,
             storedOld, _reloadAmmoBefore, after, _otherAmmoBefore, OtherWeaponAmmo())
             && ReloadOutcomeAudit.NativeCountsMatch(_chamberBefore, _oldCountBefore, _nextCountBefore,
-                _target.ChamberAmmoCount, _oldMagazine?.Count ?? 0, installed?.Count ?? 0);
+                _target.ChamberAmmoCount, _oldMagazine?.Count ?? 0, installed?.Count ?? 0, _nextCompatible);
         _reloadOutcome = _reloadSucceeded ? "Native magazine reload verified: replacement installed, old magazine stored, ammunition conserved."
             : "Native callback completed but reload state verification failed; no reload success claimed. Inspect DW_RELOAD diagnostics and native inventory.";
     }

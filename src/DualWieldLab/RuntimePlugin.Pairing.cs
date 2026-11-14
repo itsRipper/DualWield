@@ -101,7 +101,7 @@ public sealed partial class RuntimePlugin
             var primary = player.HandsController as Player.FirearmController;
             if (primary == null) throw new InvalidOperationException("No native firearm controller in hands.");
             string? weaponReason = WeaponCompatibility.GetRefusal(primary.Item, "Primary", allowMalfunction: true);
-            if (weaponReason != null) throw new InvalidOperationException(weaponReason);
+            if (weaponReason != null) throw new CompatibilityRefusal(weaponReason);
             if (primary.IsAiming) throw new InvalidOperationException("Exit single-weapon ADS before pairing.");
             if (primary.IsInSpawnOperation() && !drawing) throw new InvalidOperationException("Primary is drawing/equipping; wait until idle.");
             if (primary.IsInReloadOperation()) throw new InvalidOperationException("Primary is reloading; wait until idle.");
@@ -129,7 +129,7 @@ public sealed partial class RuntimePlugin
             // other profile data are deliberately excluded.
             Slot? leftHolster = player.Equipment.Slots.FirstOrDefault(s => s.ID == HolsterAutoPairing.LeftHolsterSlot);
             Weapon[] candidates;
-            if (leftHolster?.ContainedItem is Pistol holstered && holstered.Id != primary.Item.Id
+            if (leftHolster?.ContainedItem is Weapon holstered && WeaponCompatibility.IsCandidate(holstered) && holstered.Id != primary.Item.Id
                 && (exactOffhand == null || ReferenceEquals(holstered, exactOffhand)))
                 candidates = new Weapon[] { holstered };
             else
@@ -138,7 +138,7 @@ public sealed partial class RuntimePlugin
                 if (backpack == null) throw new InvalidOperationException("Put the loaded second magazine-fed pistol in your left holster or backpack first.");
                 _items.Clear();
                 backpack.GetAllItemsNonAlloc(_items);
-                candidates = _items.OfType<Weapon>().Where(w => w is Pistol && w.Id != primary.Item.Id
+                candidates = _items.OfType<Weapon>().Where(w => WeaponCompatibility.IsCandidate(w) && w.Id != primary.Item.Id
                     && (exactOffhand != null ? ReferenceEquals(w, exactOffhand) : string.IsNullOrEmpty(_settings.OffhandId.Value) || w.Id == _settings.OffhandId.Value)).ToArray();
                 _items.Clear();
             }
@@ -146,9 +146,11 @@ public sealed partial class RuntimePlugin
             if (candidates.Length != 1) throw new InvalidOperationException("No second pistol: equip one in each holster, or carry exactly one compatible pistol in the backpack (OffhandItemId picks one of several).");
             Weapon secondary = candidates[0];
             weaponReason = WeaponCompatibility.GetRefusal(secondary, "Offhand", allowMalfunction: true);
-            if (weaponReason != null) throw new InvalidOperationException(weaponReason);
+            if (weaponReason != null) throw new CompatibilityRefusal(weaponReason);
             if (!PairPolicy.IsDistinctPair(primary.Item.Id, secondary.Id, primary.Item.StringTemplateId, secondary.StringTemplateId))
                 throw new InvalidOperationException("Distinct existing pistol identities were not established.");
+            if (_quarantine.Contains(primary.Item.Id.ToString(), secondary.Id.ToString()))
+                throw new InvalidOperationException("This pistol pair failed earlier in this raid and stays unpaired until the raid ends.");
             if (secondary.MalfState.State == Weapon.EMalfunctionState.None && secondary.Chambers[0].ContainedItem is Ammo ammo && ammo.IsUsed)
                 throw new InvalidOperationException("Service the spent offhand chamber through native handling before pairing.");
             if (player is HideoutPlayer)
@@ -176,7 +178,15 @@ public sealed partial class RuntimePlugin
             if (prefab == null) throw new InvalidOperationException("The offhand model has no WeaponPrefab.");
             prefab.Parent(null);
             _prefab = prefab;
-            if (prefab.Hierarchy.GetTransform(ECharacterWeaponBones.Weapon_root) == null || primary.HandsHierarchy.GetTransform(ECharacterWeaponBones.Weapon_root) == null) throw new InvalidOperationException("The required common pistol rig transforms were not found.");
+            // Essential parts are checked before any presentation or shot state exists.
+            PrefabPart modelParts = PrefabProbe.Inspect(_model, prefab);
+            string? modelRefusal = PrefabRequirements.Refusal(modelParts);
+            if (modelRefusal != null)
+            {
+                LogCompatibility(secondary, modelParts);
+                throw new CompatibilityRefusal("Offhand " + modelRefusal + " (" + secondary.LocalizedShortName() + ")");
+            }
+            if (primary.HandsHierarchy.GetTransform(ECharacterWeaponBones.Weapon_root) == null) throw new InvalidOperationException("The required common pistol rig transforms were not found.");
             foreach (var collider in _model.GetComponentsInChildren<Collider>(true))
             {
                 _colliderStates.Add((collider, collider.enabled));
@@ -184,7 +194,11 @@ public sealed partial class RuntimePlugin
             }
             // Owns idle sampling, parenting and native layers. ResetStatesToDefault leaves the
             // SPAWN frame (gun lowered); the rig samples the native idle instead.
-            _visualRig = OffhandVisualRig.Create(_model, prefab, primary, primary.Item.StringTemplateId + "|" + secondary.StringTemplateId);
+            // Pose caches follow each pistol's assembled geometry.
+            string rightGeometry = WeaponGeometry.Key(primary.Item);
+            _visualRig = OffhandVisualRig.Create(_model, prefab, primary, rightGeometry, rightGeometry + "|" + WeaponGeometry.Key(secondary));
+            modelParts = (modelParts & ~PrefabProbe.AnimatorParts) | PrefabProbe.InspectAnimator(_model);
+            LogCompatibility(secondary, modelParts);
             _contextObject = new GameObject("DualWieldLab.OffhandShotContext");
             _contextObject.transform.SetParent(player.Transform.Original, false);
             _shot = _contextObject.AddComponent<OffhandShotContext>();
@@ -198,8 +212,12 @@ public sealed partial class RuntimePlugin
             // The native draw carries both pistols in; the procedural draw-in is for a pair made
             // with a pistol already in hands.
             if (drawing) _animation.Reset(drawIn: false);
-            _handPose = OffhandHandPose.Create(player, primary, prefab, secondary);
-            if (_handPose != null) _handPose.PresentationFollowsGun = _visualRig.NativeClip != null;
+            _handPose = OffhandHandPose.Create(player, primary, prefab, secondary, rightGeometry);
+            if (_handPose != null)
+            {
+                _handPose.PresentationFollowsGun = _visualRig.NativeClip != null;
+                _handPose.SelectorAnimated = PrefabRequirements.SelectorAnimated(modelParts);
+            }
             _dualAiming = _settings.ReadyAim.Value;
             _reportedVisualPhase = -1;
             _poseReportPending = false;
@@ -213,12 +231,42 @@ public sealed partial class RuntimePlugin
             if (_handPose != null) LogDiagnostic(_handPose.DiagnosticSummary);
             Logger.LogInfo("Paired right " + primary.Item.Id + " (" + primary.Item.StringTemplateId + ") with left " + secondary.Id + " (" + secondary.StringTemplateId + ").");
         }
+        catch (CompatibilityRefusal e)
+        {
+            Unpair("Pair refused: " + e.Message);
+            LogDiagnostic("DW_PAIR_REFUSED " + e.Message);
+            NotifyCompatibilityOnce(e.Message);
+        }
         catch (Exception e)
         {
             Unpair("Pair refused: " + e.Message);
             LogDiagnostic("DW_PAIR_REFUSED " + e);
         }
         finally { _pairing = false; }
+    }
+
+    // One log line per pairing attempt that reached the model.
+    private void LogCompatibility(Weapon offhand, PrefabPart parts)
+    {
+        LogDiagnostic("DW_COMPAT side=left tpl=" + offhand.StringTemplateId + " name=" + offhand.LocalizedShortName()
+            + " mechanism=" + FirearmMechanismPolicy.Describe(WeaponCompatibility.GetMechanism(offhand))
+            + " refused=" + PrefabRequirements.Describe(PrefabRequirements.MissingRequired(parts))
+            + " degraded=" + PrefabRequirements.Describe(PrefabRequirements.MissingOptional(parts, offhand.WeapFireType.Length > 1)));
+    }
+
+    // A failure after an inventory mutation stops this pair for the raid.
+    private void QuarantinePair(Weapon main, Weapon offhand, string reason)
+    {
+        _quarantine.Add(main.Id.ToString(), offhand.Id.ToString());
+        Logger.LogError("DW_FAILURE scope=pair main=" + main.Id + " offhand=" + offhand.Id + " reason=" + reason);
+        Unpair("Stopped: " + reason);
+        Notify("DualWield stopped this pistol pair for the rest of the raid after an error; other pistols can still be paired.");
+    }
+
+    // Reported once per session, not on every attempt.
+    private void NotifyCompatibilityOnce(string reason)
+    {
+        if (_compatibilityNotices.Add(reason)) Notify("DualWield: " + reason);
     }
 
     private void Unpair(string reason)
@@ -268,6 +316,7 @@ public sealed partial class RuntimePlugin
             try { _visualRig?.Restore(); }
             catch (Exception e) { Logger.LogError("Visual state restore: " + e); }
             _visualRig = null;
+            WeaponPrefab? prefab = _prefab;
             _prefab = null;
             try { _shot?.DisposeContext(); }
             catch (Exception e) { Logger.LogError("Offhand context cleanup: " + e); }
@@ -279,13 +328,21 @@ public sealed partial class RuntimePlugin
             _colliderStates.Clear();
             if (_model != null)
             {
-                try { AssetPoolObject.ReturnToPool(_model); }
+                try { ReturnOffhandModel(_model, prefab); }
                 catch (Exception e) { Logger.LogError("Offhand model return: " + e); }
             }
             _model = null;
             _items.Clear();
         }
         finally { _unpairing = false; }
+    }
+
+    // WeaponPrefab.ReturnToPool resets animator states but not layer weights; a locked-back slide
+    // (Catch layer weight 1) would otherwise show on the next pooled copy, e.g. an inventory icon.
+    private static void ReturnOffhandModel(GameObject model, WeaponPrefab? prefab)
+    {
+        prefab?.FirearmsAnimator?.SetBoltCatch(false);
+        AssetPoolObject.ReturnToPool(model);
     }
 
     bool IPairingHost.Faulted => _faulted;
@@ -297,6 +354,7 @@ public sealed partial class RuntimePlugin
     Weapon? IPairingHost.PairedOffhand => _secondary;
     void IPairingHost.TryPair(Weapon? exactOffhand, bool drawing) => TryPair(exactOffhand, drawing);
     void IPairingHost.Notify(string message) => Notify(message);
+    void IPairingHost.NotifyCompatibility(string reason) => NotifyCompatibilityOnce(reason);
     void IPairingHost.SetStatus(string message) => SetStatus(message);
     void IPairingHost.LogDiagnostic(string line) => LogDiagnostic(line);
 }

@@ -1,11 +1,17 @@
 using System;
 using System.Linq;
+using EFT;
 using EFT.InventoryLogic;
 
 namespace DualWieldLab;
 
+// Native adapter for the pure classification: anything EFT holds as a pistol is a candidate; its
+// mechanism decides whether it can be dual-wielded.
 internal static class WeaponCompatibility
 {
+    // Candidates are offered for pairing, or refused with a reason; others are ignored.
+    internal static bool IsCandidate(Item? item) => item is Weapon weapon && GetHandling(weapon) == HandlingClass.Pistol;
+
     internal static bool IsEligible(Weapon? weapon, bool allowMalfunction = false) => GetRefusal(weapon, "Weapon", allowMalfunction) == null;
 
     // allowMalfunction: a paired pistol keeps its native malfunction and is serviced in place.
@@ -16,39 +22,72 @@ internal static class WeaponCompatibility
         {
             PistolFacts facts = GetFacts(weapon);
             if (allowMalfunction) facts.Malfunctioned = false;
-            return PistolMechanics.GetRefusal(facts, side);
+            string? refusal = PistolMechanics.GetRefusal(facts, side);
+            return refusal == null ? null : refusal + " (" + weapon.LocalizedShortName() + ")";
         }
         catch (Exception e)
         {
-            // Weapon.ReloadMode itself rejects inconsistent weapon/magazine
-            // metadata. Report that at the boundary instead of forcing a model.
             return side + " native mechanical metadata is invalid: " + e.Message;
         }
     }
 
+    // The permanent reason a candidate can never pair: its mechanism.
+    internal static string? GetMechanismRefusal(Weapon weapon, string side)
+    {
+        if (GetHandling(weapon) != HandlingClass.Pistol) return null;
+        FirearmMechanism mechanism = GetMechanism(weapon);
+        return FirearmMechanismPolicy.IsSupported(mechanism) ? null
+            : side + " " + FirearmMechanismPolicy.Refusal(mechanism) + " (" + weapon.LocalizedShortName() + ")";
+    }
+
+    internal static HandlingClass GetHandling(Weapon weapon)
+        => HandlingPolicy.Classify(weapon is Pistol, weapon is Revolver, weapon.WeapClass, weapon is GrenadeLauncher && weapon.IsFlareGun);
+
+    internal static FirearmMechanism GetMechanism(Weapon weapon)
+    {
+        Magazine? magazine = weapon.GetCurrentMagazine();
+        // Weapon.ReloadMode throws on inconsistent metadata; reported as a mechanism.
+        ReloadKind reload = FirearmMechanismPolicy.CombineReload(ToKind(weapon.GetTemplate<WeaponTemplate>().ReloadMode),
+            magazine != null ? ToKind(magazine.ReloadMagType) : (ReloadKind?)null);
+        return FirearmMechanismPolicy.Classify(weapon is Revolver, weapon.IsFlareGun, weapon.IsOneOff, weapon.BoltAction,
+            reload, weapon.Chambers?.Length ?? 0, GetMagazineKind(magazine));
+    }
+
     internal static PistolFacts GetFacts(Weapon weapon)
     {
-        // A native Revolver derives Weapon directly, not Pistol. WeapClass alone
-        // would also include revolvers and signal pistols in the installed data.
-        bool nativePistol = weapon is Pistol && weapon.WeapClass == Weapon.WEAPON_CLASS_PISTOL;
-        if (!nativePistol) return new PistolFacts { IsNativePistol = false };
-        Magazine? magazine = weapon.GetCurrentMagazine();
+        HandlingClass handling = GetHandling(weapon);
+        if (handling != HandlingClass.Pistol) return new PistolFacts { Handling = handling };
+        FirearmMechanism mechanism = GetMechanism(weapon);
+        if (!FirearmMechanismPolicy.IsSupported(mechanism)) return new PistolFacts { Handling = handling, Mechanism = mechanism };
+        // No magazine, or an incompatible one, is a state EFT fires in (NativeFeed); neither refuses a pair.
         return new PistolFacts
         {
-            IsNativePistol = true,
-            BoltAction = weapon.BoltAction,
-            OneOff = weapon.IsOneOff,
-            ChamberCount = weapon.Chambers?.Length ?? 0,
-            ExternalMagazineReload = weapon.ReloadMode == Weapon.EReloadMode.ExternalMagazine,
-            HasMagazine = magazine != null,
-            MagazineExternal = magazine != null && magazine.ReloadMagType == Weapon.EReloadMode.ExternalMagazine,
-            MagazineBeltOrCylinder = magazine is CylinderMagazine || (magazine != null && (magazine.IsMagazineWithBelt || magazine.IsMagazineForStationaryWeapon)),
-            AmmoCompatible = magazine != null && magazine.IsAmmoCompatible(weapon.Chambers),
+            Handling = handling,
+            Mechanism = mechanism,
             MissingVitalParts = weapon.MissingVitalParts.Any(),
             Malfunctioned = weapon.MalfState.State != Weapon.EMalfunctionState.None,
             Suppressed = weapon.GetItemComponentsInChildren<SilencerComponent>().Any(),
             TriggerMode = GetTriggerMode(weapon.SelectedFireMode)
         };
+    }
+
+    private static MagazineKind GetMagazineKind(Magazine? magazine)
+    {
+        if (magazine == null) return MagazineKind.None;
+        if (magazine is CylinderMagazine) return MagazineKind.Cylinder;
+        return magazine.IsMagazineWithBelt || magazine.IsMagazineForStationaryWeapon ? MagazineKind.Belt : MagazineKind.Box;
+    }
+
+    private static ReloadKind ToKind(Weapon.EReloadMode mode)
+    {
+        switch (mode)
+        {
+            case Weapon.EReloadMode.ExternalMagazine: return ReloadKind.ExternalMagazine;
+            case Weapon.EReloadMode.InternalMagazine: return ReloadKind.InternalMagazine;
+            case Weapon.EReloadMode.OnlyBarrel: return ReloadKind.OnlyBarrel;
+            case Weapon.EReloadMode.ExternalMagazineWithInternalReloadSupport: return ReloadKind.ExternalMagazineWithInternalReloadSupport;
+            default: return ReloadKind.Inconsistent;
+        }
     }
 
     internal static double GetShotRate(Weapon weapon)
@@ -61,6 +100,12 @@ internal static class WeaponCompatibility
 
     internal static bool IsSupportedMode(Weapon.EFireMode mode)
         => PistolMechanics.IsSupportedMode(GetTriggerMode(mode));
+
+    internal static bool IsAutomaticOperation(Weapon.EFireMode mode)
+        => PistolMechanics.IsAutomaticOperation(GetTriggerMode(mode));
+
+    // As AutomaticFireOperation's constructor reads it.
+    internal static int GetBurstShotsCount(Weapon weapon) => weapon.GetItemComponent<FireModeComponent>()?.BurstShotsCount ?? 3;
 
     internal static PistolTriggerMode GetTriggerMode(Weapon.EFireMode mode)
     {

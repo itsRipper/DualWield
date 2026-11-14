@@ -12,7 +12,7 @@ using UnityEngine;
 
 namespace DualWieldLab;
 
-[BepInPlugin(Id, "DualWield", "1.1.1")]
+[BepInPlugin(Id, "DualWield", "1.2.0")]
 [BepInIncompatibility(LegacyId)]
 public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
 {
@@ -28,6 +28,7 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
     private InactiveMagazineReload? _offhandReload;
     private OffhandNativeReload? _nativeReload;
     private Magazine? _offhandReloadNext;
+    private bool _offhandInsertShown;
     private bool _offhandReloadPresented;
     private LeftArmHandoff? _handoff;
     private ReloadClip? _offhandClip, _handoffClip, _serviceClip;
@@ -76,6 +77,7 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
     private int _primaryAutoUpdateFrame = -1;
     private bool _ownerInputAdmitted;
     private readonly List<Item> _items = new List<Item>(256);
+    private readonly List<Magazine> _preflightMagazines = new List<Magazine>(32);
     private readonly List<(Collider collider, bool enabled)> _colliderStates = new List<(Collider, bool)>();
     private Player? _player;
     private Player.FirearmController? _primary;
@@ -94,6 +96,8 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
     private PistolAnimationProfile _animationProfile;
     private int _collisionMask;
     private bool _faulted;
+    private readonly HashSet<string> _compatibilityNotices = new HashSet<string>();
+    private readonly PairQuarantine _quarantine = new PairQuarantine();
     private bool _patchesReady;
     private int _reportedDamageDrops, _reportedDamageFailures;
     private bool _poseReportPending;
@@ -291,6 +295,8 @@ public sealed partial class RuntimePlugin : BaseUnityPlugin, IPairingHost
         CancelReload(reason);
         Unpair(reason);
         _cooldowns.Clear();
+        _compatibilityNotices.Clear();
+        _quarantine.Clear();
         _cooldownWorld = null;
         DamageDiagnostics.Clear();
         _pairBarrier.Reset();

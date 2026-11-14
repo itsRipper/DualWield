@@ -198,8 +198,8 @@ internal static class RemoteDualPistols
     {
         Player player = remote.Player;
         return remote.HasState && remote.State.Paired && player.HealthController != null && player.HealthController.IsAlive
-            && player.HandsController is Player.FirearmController controller && controller.Item is Pistol right
-            && right.Id.ToString() != remote.State.WeaponId;
+            && player.HandsController is Player.FirearmController controller && WeaponCompatibility.IsCandidate(controller.Item)
+            && controller.Item.Id.ToString() != remote.State.WeaponId;
     }
 
     private static void Refresh(Remote remote)
@@ -217,7 +217,7 @@ internal static class RemoteDualPistols
         Player player = remote.Player;
         var primary = (Player.FirearmController)player.HandsController;
         var found = player.FindItemById(remote.State.WeaponId, false, false);
-        if (!found.Succeeded || !(found.Value is Pistol left))
+        if (!found.Succeeded || !(found.Value is Weapon left) || !WeaponCompatibility.IsCandidate(left))
         {
             Refuse(remote, "the left pistol " + remote.State.WeaponId + " is not in this copy of the inventory yet");
             return;
@@ -234,17 +234,20 @@ internal static class RemoteDualPistols
             var prefab = model != null ? model.GetComponent<WeaponPrefab>() : null;
             if (prefab == null) throw new InvalidOperationException("the left pistol model could not be assembled");
             prefab.Parent(null);
+            string? modelRefusal = PrefabRequirements.Refusal(PrefabProbe.Inspect(model!, prefab));
+            if (modelRefusal != null) throw new InvalidOperationException("the left pistol " + modelRefusal);
             Transform Bone(ECharacterWeaponBones bone) => prefab.Hierarchy.GetTransform(bone) ?? throw new InvalidOperationException("missing " + bone);
             Transform rightRoot = primary.HandsHierarchy.GetTransform(ECharacterWeaponBones.Weapon_root)
                 ?? throw new InvalidOperationException("the right pistol has no Weapon_root");
             remote.LeftRoot = Bone(ECharacterWeaponBones.Weapon_root);
-            remote.LeftMarker = Bone(ECharacterWeaponBones.weapon_R_IK_marker);
-            remote.LeftFireport = FindActive(model!.transform, WeaponPrefab.BONE_FIREPORT) ?? throw new InvalidOperationException("the left pistol has no fireport");
+            // Without the grip IK marker the pistol is held by its palm reference, as locally.
+            remote.LeftMarker = prefab.Hierarchy.GetTransform(ECharacterWeaponBones.weapon_R_IK_marker) ?? Bone(ECharacterWeaponBones.HumanRPalm);
+            remote.LeftFireport = PrefabProbe.NativeFireport(prefab) ?? throw new InvalidOperationException("the left pistol has no fireport");
             remote.RightModel = rightRoot.parent ?? rightRoot;
             remote.RightLocalPosition = remote.RightModel.localPosition;
             remote.RightLocalRotation = remote.RightModel.localRotation;
             remote.RightMoved = false;
-            int layer = LayerOf(rightRoot, model.layer);
+            int layer = LayerOf(rightRoot, model!.layer);
             foreach (var t in model.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = layer;
             foreach (var collider in model.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
             model.transform.SetParent(player.PlayerBones.Ribcage.Original, true);
@@ -466,7 +469,8 @@ internal static class RemoteDualPistols
         if (limbs == null || limbs.Length < 2 || limbs[0] == null || limbs[1] == null) return "no arm IK limbs";
         Player.FirearmController primary = remote.Primary!;
         Transform? rightRoot = primary.HandsHierarchy.GetTransform(ECharacterWeaponBones.Weapon_root);
-        Transform? rightMarker = primary.HandsHierarchy.GetTransform(ECharacterWeaponBones.weapon_R_IK_marker);
+        Transform? rightMarker = primary.HandsHierarchy.GetTransform(ECharacterWeaponBones.weapon_R_IK_marker)
+            ?? primary.HandsHierarchy.GetTransform(ECharacterWeaponBones.HumanRPalm);
         Transform? rightFireport = primary.CurrentFireport?.Original;
         if (rightRoot == null || rightMarker == null || rightFireport == null || remote.RightModel == null) return "right pistol bones missing";
 
@@ -581,11 +585,5 @@ internal static class RemoteDualPistols
         foreach (var renderer in weapon.GetComponentsInChildren<Renderer>(false))
             if (renderer is MeshRenderer || renderer is SkinnedMeshRenderer) return renderer.gameObject.layer;
         return fallback;
-    }
-
-    private static Transform? FindActive(Transform root, string name)
-    {
-        foreach (var t in root.GetComponentsInChildren<Transform>(false)) if (t.name == name) return t;
-        return null;
     }
 }

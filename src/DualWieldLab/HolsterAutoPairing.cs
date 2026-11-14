@@ -18,6 +18,7 @@ internal interface IPairingHost
     Weapon? PairedOffhand { get; }
     void TryPair(Weapon? exactOffhand, bool drawing);
     void Notify(string message);
+    void NotifyCompatibility(string reason);
     void SetStatus(string message);
     void LogDiagnostic(string line);
 }
@@ -163,7 +164,7 @@ internal sealed class HolsterAutoPairing
         // attachments, the shooting range re-cloning its items) is paired fresh. The remembered
         // left pistol is kept only if it is still the same item at the same address.
         var controller = player.HandsController as Player.FirearmController;
-        if (controller != null && !(controller.Item is Pistol) && !player.InventoryController.IsChangingWeapon)
+        if (controller != null && !WeaponCompatibility.IsCandidate(controller.Item) &&!player.InventoryController.IsChangingWeapon)
         { DropInventoryResume("a non-pistol is in hands", notify: false); return; }
         if (!PistolHandsReady(player, resume.Owner, controller)) { _resumeFrame.Reset(); return; }
         _resumeFrame.Mark(Time.frameCount);
@@ -192,7 +193,7 @@ internal sealed class HolsterAutoPairing
 
     // A drawn pistol, idle, with native input bound to it: the state pairing needs.
     private bool PistolHandsReady(Player player, PlayerOwner owner, Player.FirearmController? controller)
-        => controller != null && !controller.Destroyed && controller.Item is Pistol
+        => controller != null && !controller.Destroyed && WeaponCompatibility.IsCandidate(controller.Item)
             && controller.CurrentOperation is Player.FirearmController.Idling && !controller.IsInReloadOperation()
             && !player.InventoryController.IsChangingWeapon && player.ProcessStatus == Player.EProcessStatus.None
             && !player.IsSprintEnabled && !player.IsInventoryOpened && !_host.ReloadBusy && !_host.OffhandReloadPending && !_host.Faulted
@@ -221,17 +222,28 @@ internal sealed class HolsterAutoPairing
         _autoPairArmed = (_settings.AutoPair.Value || requested) && _settings.Enabled.Value && current is Player.FirearmController controller
             && _handsWatched != null && BothHolstersCompatible(_handsWatched, controller.Item);
         _autoPairArmedAt = Time.unscaledTime;
+        if (!_autoPairArmed && _settings.AutoPair.Value && _settings.Enabled.Value && current is Player.FirearmController drawn && _handsWatched != null)
+            ReportUnsupportedHolsterPistol(_handsWatched, drawn.Item);
+    }
+
+    // Two holstered pistols that can never pair (mechanism): say so rather than silently not pairing.
+    private void ReportUnsupportedHolsterPistol(Player player, Item drawn)
+    {
+        if (drawn.CurrentAddress?.Container?.ID != "Holster" || !(drawn is Weapon right) || !WeaponCompatibility.IsCandidate(right)) return;
+        if (!(player.Equipment.Slots.FirstOrDefault(s => s.ID == LeftHolsterSlot)?.ContainedItem is Weapon left) || !WeaponCompatibility.IsCandidate(left)) return;
+        string? reason = WeaponCompatibility.GetMechanismRefusal(right, "Primary") ?? WeaponCompatibility.GetMechanismRefusal(left, "Offhand");
+        if (reason != null) _host.NotifyCompatibility(reason);
     }
 
     // Only the two genuine holster slots arm automatic pairing; a backpack pistol never does.
     private static bool BothHolstersCompatible(Player player, Item drawn)
-        => drawn is Pistol && drawn.CurrentAddress?.Container?.ID == "Holster" && HolsterPairCompatible(player);
+        => WeaponCompatibility.IsCandidate(drawn) && drawn.CurrentAddress?.Container?.ID == "Holster" && HolsterPairCompatible(player);
 
     // The equipped holster pair itself: HOLSTER pistol as primary, HOLSTERLEFT pistol as offhand.
     private static bool HolsterPairCompatible(Player player)
     {
-        var right = player.Equipment.GetSlot(EquipmentSlot.Holster).ContainedItem as Pistol;
-        var left = player.Equipment.Slots.FirstOrDefault(s => s.ID == LeftHolsterSlot)?.ContainedItem as Pistol;
+        var right = player.Equipment.GetSlot(EquipmentSlot.Holster).ContainedItem as Weapon;
+        var left = player.Equipment.Slots.FirstOrDefault(s => s.ID == LeftHolsterSlot)?.ContainedItem as Weapon;
         return right != null && left != null && left.Id != right.Id && WeaponCompatibility.GetRefusal(right, "Primary", allowMalfunction: true) == null
             && WeaponCompatibility.GetRefusal(left, "Offhand", allowMalfunction: true) == null;
     }
@@ -271,7 +283,7 @@ internal sealed class HolsterAutoPairing
     }
 
     private bool DrawPairReady(Player player, Player.FirearmController? controller)
-        => controller != null && !controller.Destroyed && controller.Item is Pistol && controller.CurrentOperation != null
+        => controller != null && !controller.Destroyed && WeaponCompatibility.IsCandidate(controller.Item) && controller.CurrentOperation != null
             && (controller.IsInSpawnOperation() || controller.CurrentOperation is Player.FirearmController.Idling)
             && !controller.IsInReloadOperation() && player.HealthController.IsAlive && player.FirstPersonPointOfView
             // ProcessStatus stays Scheduled for the whole selection, draw included; only a

@@ -52,6 +52,31 @@ internal static class AutomaticChecks
         check("G18C+G18C separate schedulers sustain native cadence",auto>=19&&Count(PistolTriggerMode.FullAutomatic,automatic)==auto);
         check("Different automatic RPM values retain separate cadence",other>=12&&other<=13&&other<auto);
         check("Empty/final-round fixtures cannot generate extra ammunition",Count(PistolTriggerMode.FullAutomatic,automatic,0)==0&&Count(PistolTriggerMode.FullAutomatic,automatic,1)==1);
+        // Burst: one press fires BurstShotsCount rounds at the cyclic rate, completes after an early
+        // release, and needs a new press for the next.
+        int Burst(int burstCount, int releaseAtMs, int stopAtMs = int.MaxValue, int rounds = 100){
+            var t=new TriggerEdgeGate(); t.Observe(true,false); double next=0; int count=0;
+            for(int ms=0;ms<1000;ms++){
+                bool held=ms<releaseAtMs;
+                if(ms==stopAtMs) t.CancelHold();
+                bool request=ms==0?t.ClaimNative(ms,true,held,PistolTriggerMode.Burst,burstCount):t.ClaimRepeat(ms,true,held,PistolTriggerMode.Burst,ms/1000d,next);
+                if(!request||count>=rounds){ if(request) t.CancelHold(); continue; }
+                count++; next=PairPolicy.NextShotTime(ms/1000d,(double)automatic);
+            } return count;
+        }
+        check("A held burst fires exactly its native round count (3)",Burst(3,1000)==3);
+        check("A 2-round burst fires two",Burst(2,1000)==2);
+        check("Releasing early still completes the burst, as EFT keeps its trigger pressed",Burst(3,1)==3);
+        check("Holding past the burst never starts another one",Burst(3,1000)==3&&Burst(4,1000)==4);
+        check("An empty magazine (cancelled hold) ends the burst",Burst(3,1000,rounds:1)==1&&Burst(3,1000,stopAtMs:60)<3);
+        check("Burst follow-ups are the native count minus the first round, none for a zero count",PistolMechanics.BurstFollowUps(3)==2&&PistolMechanics.BurstFollowUps(0)==0);
+        var bursts=new TriggerEdgeGate(); bursts.Observe(true,false);
+        bool first=bursts.ClaimNative(0,true,true,PistolTriggerMode.Burst,3);
+        check("A second press during a running burst is not a new burst",first&&!bursts.ClaimNative(1,true,true,PistolTriggerMode.Burst,3));
+        check("Burst runs at the cyclic (automatic) rate",PistolMechanics.EffectiveRate(PistolTriggerMode.Burst,450,automatic,0)==automatic
+            &&PistolMechanics.IsAutomaticOperation(PistolTriggerMode.Burst)&&!PistolMechanics.IsAutomaticOperation(PistolTriggerMode.Doublet));
+        check("Doublet on a magazine pistol is one round per press at the single rate (EFT's FireOperation)",
+            Count(PistolTriggerMode.Doublet,single)==1&&PistolMechanics.EffectiveRate(PistolTriggerMode.Doublet,450,automatic,0)==450);
         trigger.Reset(); trigger.Observe(true,false);trigger.ClaimNative(0,true,true,PistolTriggerMode.FullAutomatic);
         check("Long stall admits at most one offhand round",trigger.ClaimRepeat(1,true,true,PistolTriggerMode.FullAutomatic,10,.05)&&!trigger.ClaimRepeat(1,true,true,PistolTriggerMode.FullAutomatic,10,.05));
         double afterStall=PairPolicy.NextShotTime(10,(double)automatic);

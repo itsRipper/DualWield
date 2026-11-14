@@ -33,6 +33,9 @@ internal static class MenuDualPistols
     private sealed class State
     {
         internal GameObject Model = null!;
+        // Restored before the model returns to the pool.
+        internal Transform[] Nodes = Array.Empty<Transform>();
+        internal int[] Layers = Array.Empty<int>();
         internal Transform LeftRoot = null!, LeftMarker = null!, LeftFireport = null!;
         internal Transform RightModel = null!, RightRoot = null!, RightMarker = null!, RightFireport = null!;
         internal Vector3 RightModelLocalPosition;
@@ -41,7 +44,7 @@ internal static class MenuDualPistols
         internal GripPose? LeftGrip;
         internal Transform[] RightHand = Array.Empty<Transform>();
         internal Slot LeftSlot = null!;
-        internal Pistol LeftItem = null!;
+        internal Weapon LeftItem = null!;
     }
 
     // Right hand (grip marker) relative to the shoulder mid-point, metres: out along the shoulder
@@ -98,45 +101,55 @@ internal static class MenuDualPistols
         return false;
     }
 
+    // EFT's pistol rule; FirearmClassification.cs is linked from the runtime.
+    private static bool HeldAsPistol(Weapon weapon)
+        => HandlingPolicy.Classify(weapon is Pistol, weapon is Revolver, weapon.WeapClass, weapon is GrenadeLauncher && weapon.IsFlareGun) == HandlingClass.Pistol;
+
     private static void Attach(MenuPlayerPoser poser)
     {
         PlayerBody? body = poser.GetComponentInParent<PlayerBody>() ?? poser.GetComponentInChildren<PlayerBody>();
         if (body?.Equipment == null || !DualHolsterPlugin.HasLeftHolster(body.Equipment)) return;
         Item? inHands = ItemInHands(body)?.Value;
-        if (!(inHands is Pistol right) || right.Parent?.Container?.ID != "Holster") return;
-        if (!(body.Equipment.GetSlot(DualHolsterPlugin.LeftHolster).ContainedItem is Pistol left)) return;
+        if (!(inHands is Weapon right) || !HeldAsPistol(right) || right.Parent?.Container?.ID != "Holster") return;
+        if (!(body.Equipment.GetSlot(DualHolsterPlugin.LeftHolster).ContainedItem is Weapon left) || !HeldAsPistol(left)) return;
         Transform weaponParent = poser.PBones.WeaponRoot.Original;
         // The poser has gathered the right pistol's IK markers from its TransformLinks.
         Transform? rightMarker = Markers(poser)[1];
         Transform? rightRoot = rightMarker;
         while (rightRoot != null && rightRoot.name != "Weapon_root") rightRoot = rightRoot.parent;
-        Transform? rightFireport = rightRoot != null ? FindActive(rightRoot, "fireport") ?? FindNamed(rightRoot, "fireport") : null;
+        // PlayerBones.FindFireport: the first "fireport" depth-first under Weapon_root.
+        Transform? rightFireport = rightRoot != null ? TransformTools.FindTransformRecursive(rightRoot, "fireport") : null;
         if (rightRoot == null || rightMarker == null || rightFireport == null)
             throw new InvalidOperationException("the right pistol has no Weapon_root/grip marker/fireport");
         WeaponPrefab prefab = CreatePreviewWeapon(left, poser.PBones.Ribcage.Original);
         GameObject model = prefab.gameObject;
-        try { Bind(poser, body, right, left, prefab, rightRoot, rightMarker, rightFireport); }
+        Transform[] nodes = model.GetComponentsInChildren<Transform>(true);
+        int[] layers = new int[nodes.Length];
+        for (int i = 0; i < nodes.Length; i++) layers[i] = nodes[i].gameObject.layer;
+        try { Bind(poser, body, right, left, prefab, rightRoot, rightMarker, rightFireport, nodes, layers); }
         catch
         {
             // Not registered yet, so Release cannot find it: return the pooled model here.
-            AssetPoolObject.ReturnToPool(model);
+            ReturnPreviewModel(model, nodes, layers);
             throw;
         }
     }
 
-    private static void Bind(MenuPlayerPoser poser, PlayerBody body, Pistol right, Pistol left, WeaponPrefab prefab,
-        Transform rightRoot, Transform rightMarker, Transform rightFireport)
+    private static void Bind(MenuPlayerPoser poser, PlayerBody body, Weapon right, Weapon left, WeaponPrefab prefab,
+        Transform rightRoot, Transform rightMarker, Transform rightFireport, Transform[] nodes, int[] layers)
     {
         GameObject model = prefab.gameObject;
         Transform Bone(ECharacterWeaponBones bone) => prefab.Hierarchy.GetTransform(bone)
             ?? throw new InvalidOperationException("missing " + bone);
         int layer = rightRoot.GetComponentInChildren<Renderer>()?.gameObject.layer ?? model.layer;
-        foreach (var t in model.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = layer;
+        foreach (var t in nodes) t.gameObject.layer = layer;
         var state = new State
         {
-            Model = model,
-            LeftRoot = Bone(ECharacterWeaponBones.Weapon_root), LeftMarker = Bone(ECharacterWeaponBones.weapon_R_IK_marker),
-            LeftFireport = FindActive(model.transform, "fireport") ?? throw new InvalidOperationException("the left pistol has no fireport"),
+            Model = model, Nodes = nodes, Layers = layers,
+            // Without the grip IK marker the pistol is held by its palm reference, as in raid.
+            LeftRoot = Bone(ECharacterWeaponBones.Weapon_root),
+            LeftMarker = prefab.Hierarchy.GetTransform(ECharacterWeaponBones.weapon_R_IK_marker) ?? Bone(ECharacterWeaponBones.HumanRPalm),
+            LeftFireport = TransformTools.FindTransformRecursive(Bone(ECharacterWeaponBones.Weapon_root), "fireport") ?? throw new InvalidOperationException("the left pistol has no fireport"),
             RightModel = rightRoot.parent ?? rightRoot, RightRoot = rightRoot, RightMarker = rightMarker, RightFireport = rightFireport,
             LeftSlot = body.Equipment.GetSlot(DualHolsterPlugin.LeftHolster), LeftItem = left,
         };
@@ -200,18 +213,6 @@ internal static class MenuDualPistols
         foreach (var grip in model.GetComponentsInChildren<GripPose>(true))
             if (grip.Hand == GripPose.EHand.Right && (best == null || (grip.IsAlternative && !best.IsAlternative))) best = grip;
         return best;
-    }
-
-    private static Transform? FindNamed(Transform root, string name)
-    {
-        foreach (var t in root.GetComponentsInChildren<Transform>(true)) if (t.name == name) return t;
-        return null;
-    }
-
-    private static Transform? FindActive(Transform root, string name)
-    {
-        foreach (var t in root.GetComponentsInChildren<Transform>(false)) if (t.name == name) return t;
-        return null;
     }
 
     // After the native preview pose (EFT places the weapon on the hand and solves both arms inside
@@ -320,11 +321,22 @@ internal static class MenuDualPistols
         limb.solver.Update();
     }
 
+    // WeaponPrefab.ResetStatesToDefault only runs on an active model, so the model leaves the poser
+    // first; otherwise the next pooled copy (icons, previews) keeps this pose and its layers.
+    private static void ReturnPreviewModel(GameObject model, Transform[] nodes, int[] layers)
+    {
+        for (int i = 0; i < nodes.Length; i++)
+            if (nodes[i] != null) nodes[i].gameObject.layer = layers[i];
+        model.transform.SetParent(null, worldPositionStays: false);
+        model.SetActive(true);
+        AssetPoolObject.ReturnToPool(model);
+    }
+
     private static void Release(MenuPlayerPoser __instance)
     {
         if (!Active.TryGetValue(__instance, out var s)) return;
         Active.Remove(__instance);
-        if (s.Model != null) AssetPoolObject.ReturnToPool(s.Model);
+        if (s.Model != null) ReturnPreviewModel(s.Model, s.Nodes, s.Layers);
         // Hand the right pistol back at its native pose (the stance moved it every frame).
         if (s.RightModel != null)
         {

@@ -24,7 +24,7 @@ public record ModMetadata : IModMetadata
     public string Name { get; init; } = "DualWield dual holster";
     public string Author { get; init; } = "ItsRipper";
     public List<string>? Contributors { get; init; }
-    public SemanticVersioning.Version Version { get; init; } = new("1.1.1");
+    public SemanticVersioning.Version Version { get; init; } = new("1.2.0");
     public SemanticVersioning.Range SptVersion { get; init; } = new("~4.1.0");
     public List<string>? Incompatibilities { get; init; }
     public Dictionary<string, SemanticVersioning.Range>? ModDependencies { get; init; }
@@ -125,6 +125,18 @@ public sealed class DualHolsterLoader(
 
     private Func<Item, (int Width, int Height)> Size(List<Item> items)
         => pistol => inventoryHelper.GetItemSize(pistol.Template, pistol.Id, items);
+}
+
+// Runs after the database-editing mods so a replaced Holster filter also reaches the left holster.
+[Injectable(TypePriority = OnLoadOrder.PostLoad + 900000)]
+public sealed class LeftHolsterFilterSync(TemplateTable templates, ISptLogger<LeftHolsterFilterSync> logger) : IOnLoad
+{
+    public Task OnLoadAsync(CancellationToken cancellationToken)
+    {
+        if (templates.Items.TryGetValue(LeftHolster.DefaultInventory, out var inventory) && LeftHolster.Sync(inventory))
+            logger.Info("Dual holster: " + LeftHolster.SlotName + " filters synchronised with the native Holster after mod loading.");
+        return Task.CompletedTask;
+    }
 }
 
 [Injectable]

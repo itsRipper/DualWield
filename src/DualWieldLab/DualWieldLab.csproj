@@ -4,8 +4,8 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <AssemblyName>DualWieldLab</AssemblyName>
-    <Version>1.1.1</Version>
-    <InformationalVersion>1.1.1</InformationalVersion>
+    <Version>1.2.0</Version>
+    <InformationalVersion>1.2.0</InformationalVersion>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
     <SptRoot Condition="'$(SptRoot)' == ''">$(SPT_ROOT)</SptRoot>
